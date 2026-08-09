@@ -1,4 +1,5 @@
 build/
+linux/target/
 *.dmg
 .DS_Store
 node_modules/
