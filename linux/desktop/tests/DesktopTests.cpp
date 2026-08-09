@@ -1,3 +1,4 @@
+#include "DefaultSettings.h"
 #include "IpcClient.h"
 #include "StatePresentation.h"
 
@@ -14,6 +15,7 @@ private Q_SLOTS:
     void lightStatesMapToNativePresentation();
     void providerAndGeorgeLightCommandsSerialize();
     void ipcResponseSerialization();
+    void georgeLightAddressDefaultsAndOverrides();
 };
 
 void DesktopTests::waitingStatesRemainDistinct()
@@ -73,6 +75,16 @@ void DesktopTests::ipcResponseSerialization()
         IpcClient::parseResponse(QByteArrayLiteral("{\"ok\":false,\"error\":\"invalid config\"}\n"));
     QVERIFY(!error.ok);
     QCOMPARE(error.error, QStringLiteral("invalid config"));
+}
+
+void DesktopTests::georgeLightAddressDefaultsAndOverrides()
+{
+    QCOMPARE(DefaultSettings::georgeLightAddress({}), QStringLiteral("http://george-light-zero.local"));
+    QCOMPARE(DefaultSettings::georgeLightAddress({{QStringLiteral("address"), QStringLiteral("  ")}}),
+             QStringLiteral("http://george-light-zero.local"));
+    QCOMPARE(DefaultSettings::georgeLightAddress(
+                 {{QStringLiteral("address"), QStringLiteral("http://light.example:8080")}}),
+             QStringLiteral("http://light.example:8080"));
 }
 
 QTEST_MAIN(DesktopTests)

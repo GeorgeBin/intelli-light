@@ -131,6 +131,11 @@ intelli-light-linux hooks sync
 User configuration remains under `~/.config/intelli-light/`. State and lifecycle
 files retain the cross-platform contract locations:
 
+The default GeorgeLight HTTP address is
+`http://george-light-zero.local`. The Desktop displays this value before the
+daemon's first snapshot and whenever no saved address is available; an explicit
+user-configured address takes precedence.
+
 ```text
 ~/.codex/statusbar/states.d/
 ~/.codex/statusbar/sessions.d/

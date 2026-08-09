@@ -1,5 +1,7 @@
 #include "MainWindow.h"
 
+#include "DefaultSettings.h"
+
 #include "StatePresentation.h"
 
 #include <KAboutData>
@@ -103,6 +105,7 @@ QWidget *MainWindow::createGeorgeLightPage()
     auto *layout = new QVBoxLayout(page);
     lightEnabled_ = new QCheckBox(tr("Enable GeorgeLight output"), page);
     lightAddress_ = new QLineEdit(page);
+    lightAddress_->setText(DefaultSettings::GeorgeLightAddress);
     auto *addressLayout = new QFormLayout;
     addressLayout->addRow(tr("Address:"), lightAddress_);
     layout->addWidget(lightEnabled_);
@@ -233,7 +236,7 @@ void MainWindow::applySnapshot(const QJsonObject &snapshot)
     const bool lightEnabled = georgeLightConfig_.value(QStringLiteral("enabled")).toBool();
     lightEnabled_->setChecked(lightEnabled);
     trayLightEnabled_->setChecked(lightEnabled);
-    lightAddress_->setText(georgeLightConfig_.value(QStringLiteral("address")).toString());
+    lightAddress_->setText(DefaultSettings::georgeLightAddress(georgeLightConfig_));
     const QString connectivity = georgeLightConfig_.value(QStringLiteral("connectivity")).toString();
     lightConnectivity_->setText(
         tr("%1 — %2").arg(lightEnabled ? tr("Enabled") : tr("Disabled"), connectivity));

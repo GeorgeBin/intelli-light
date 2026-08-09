@@ -19,6 +19,7 @@ find_package(KF6 6.0 REQUIRED COMPONENTS CoreAddons I18n StatusNotifierItem)
 set(CMAKE_SKIP_INSTALL_RPATH TRUE)
 
 add_library(intelli-light-desktop-support STATIC
+    src/DefaultSettings.h
     src/IpcClient.cpp
     src/IpcClient.h
     src/StatePresentation.cpp
