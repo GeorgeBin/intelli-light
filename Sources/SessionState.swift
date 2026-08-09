@@ -69,6 +69,16 @@ enum AgentState: Int, Equatable, Comparable {
     var requiresUserAction: Bool {
         self == .waitingApproval || self == .waitingInput || self == .waitingImplementation
     }
+
+    var lightState: LightState {
+        switch self {
+        case .working: return .working
+        case .waitingApproval, .waitingInput, .waitingImplementation: return .actionRequired
+        case .error: return .error
+        case .done: return .done
+        case .idle: return .idle
+        }
+    }
 }
 
 struct AgentSessionKey: Hashable, Codable {

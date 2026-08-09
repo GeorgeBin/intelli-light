@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/GeorgeBin/intelli-light/blob/main/docs/session-state.schema.json",
+  "title": "intelli-light SessionState",
+  "description": "Cross-platform wire format for one Codex or Claude agent session.",
+  "type": "object",
+  "required": ["state"],
+  "properties": {
+    "provider": {
+      "type": "string",
+      "enum": ["codex", "claude"],
+      "default": "codex"
+    },
+    "state": {
+      "type": "string",
+      "description": "Wire state. Known values are normalized by the state contract; unknown values map to Idle."
+    },
+    "label": {
+      "type": "string",
+      "default": ""
+    },
+    "tool": {
+      "type": "string",
+      "default": ""
+    },
+    "project": {
+      "type": "string",
+      "default": ""
+    },
+    "sessionId": {
+      "type": "string",
+      "default": ""
+    },
+    "transcript": {
+      "type": "string",
+      "default": ""
+    },
+    "startedAt": {
+      "type": "number",
+      "default": 0,
+      "description": "Unix seconds when the current turn began; 0 means no active clock."
+    },
+    "pausedTotal": {
+      "type": "number",
+      "minimum": 0,
+      "default": 0,
+      "description": "Accumulated paused seconds for the current turn."
+    },
+    "pauseStart": {
+      "type": "number",
+      "default": 0,
+      "description": "Unix seconds when the current pause began; 0 means not paused."
+    },
+    "ts": {
+      "type": "number",
+      "default": 0,
+      "description": "Unix seconds when the writer last updated this state."
+    },
+    "ownerPid": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+    },
+    "ownerKind": {
+      "type": "string",
+      "enum": ["session", "global", "unknown"],
+      "default": "unknown"
+    }
+  },
+  "additionalProperties": true
+}

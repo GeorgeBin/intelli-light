@@ -1,0 +1,81 @@
+{
+  "contractVersion": 1,
+  "scenarios": [
+    {
+      "name": "Codex and Claude mixed sessions",
+      "now": 20000,
+      "enabledProviders": ["codex", "claude"],
+      "ownerLiveness": {"codex:c1": true, "claude:c1": true},
+      "sessions": [
+        {"provider": "codex", "state": "working", "sessionId": "c1", "ts": 20000, "ownerPid": 201, "ownerKind": "session"},
+        {"provider": "claude", "state": "waitingInput", "sessionId": "c1", "ts": 19999, "ownerPid": 202, "ownerKind": "session"}
+      ],
+      "expected": {"agentState": "waitingInput", "lightState": "actionRequired", "displaySession": "codex:c1"}
+    },
+    {
+      "name": "waiting approval outranks waiting input",
+      "now": 20000,
+      "enabledProviders": ["codex", "claude"],
+      "ownerLiveness": {"codex:input": true, "claude:approval": true},
+      "sessions": [
+        {"provider": "codex", "state": "waitingInput", "sessionId": "input", "ts": 20000, "ownerPid": 203, "ownerKind": "session"},
+        {"provider": "claude", "state": "waitingApproval", "sessionId": "approval", "ts": 19999, "ownerPid": 204, "ownerKind": "session"}
+      ],
+      "expected": {"agentState": "waitingApproval", "lightState": "actionRequired", "displaySession": "codex:input"}
+    },
+    {
+      "name": "waiting input outranks waiting implementation",
+      "now": 20000,
+      "enabledProviders": ["codex", "claude"],
+      "ownerLiveness": {"codex:implementation": true, "claude:input": true},
+      "sessions": [
+        {"provider": "codex", "state": "waitingImplementation", "sessionId": "implementation", "ts": 20000, "ownerPid": 205, "ownerKind": "session"},
+        {"provider": "claude", "state": "waitingInput", "sessionId": "input", "ts": 19999, "ownerPid": 206, "ownerKind": "session"}
+      ],
+      "expected": {"agentState": "waitingInput", "lightState": "actionRequired", "displaySession": "codex:implementation"}
+    },
+    {
+      "name": "waiting implementation outranks error",
+      "now": 20000,
+      "enabledProviders": ["codex", "claude"],
+      "ownerLiveness": {"codex:implementation": true},
+      "sessions": [
+        {"provider": "codex", "state": "waitingImplementation", "sessionId": "implementation", "ts": 19999, "ownerPid": 207, "ownerKind": "session"},
+        {"provider": "claude", "state": "error", "sessionId": "error", "ts": 20000}
+      ],
+      "expected": {"agentState": "waitingImplementation", "lightState": "actionRequired", "displaySession": "claude:error"}
+    },
+    {
+      "name": "error outranks working",
+      "now": 20000,
+      "enabledProviders": ["codex", "claude"],
+      "ownerLiveness": {"codex:working": true},
+      "sessions": [
+        {"provider": "codex", "state": "working", "sessionId": "working", "ts": 20000, "ownerPid": 208, "ownerKind": "session"},
+        {"provider": "claude", "state": "error", "sessionId": "error", "ts": 19999}
+      ],
+      "expected": {"agentState": "error", "lightState": "error", "displaySession": "codex:working"}
+    },
+    {
+      "name": "working outranks done",
+      "now": 20000,
+      "enabledProviders": ["codex", "claude"],
+      "ownerLiveness": {"claude:working": true},
+      "sessions": [
+        {"provider": "codex", "state": "done", "sessionId": "done", "ts": 20000},
+        {"provider": "claude", "state": "working", "sessionId": "working", "ts": 19999, "ownerPid": 209, "ownerKind": "session"}
+      ],
+      "expected": {"agentState": "working", "lightState": "working", "displaySession": "codex:done"}
+    },
+    {
+      "name": "done outranks idle",
+      "now": 20000,
+      "enabledProviders": ["codex", "claude"],
+      "sessions": [
+        {"provider": "codex", "state": "idle", "sessionId": "idle", "ts": 20000},
+        {"provider": "claude", "state": "done", "sessionId": "done", "ts": 19999}
+      ],
+      "expected": {"agentState": "done", "lightState": "done", "displaySession": "codex:idle"}
+    }
+  ]
+}

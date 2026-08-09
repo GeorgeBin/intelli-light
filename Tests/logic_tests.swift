@@ -1,7 +1,7 @@
 import Foundation
 
 // Standalone assertion harness. Compiled WITHOUT main.swift so it does not launch the GUI.
-// Build: swiftc Tests/logic_tests.swift Sources/SessionState.swift Sources/AppSupport.swift -o "$TMPDIR/csbt"
+// Build: swiftc Tests/logic_tests.swift Sources/SessionState.swift Sources/AppSupport.swift Sources/LightOutput.swift -o "$TMPDIR/csbt"
 // Run:   "$TMPDIR/csbt"
 
 var failures = 0
@@ -9,6 +9,112 @@ func check(_ cond: Bool, _ msg: String, file: String = #file, line: Int = #line)
     if !cond { print("FAIL \(file):\(line) — \(msg)"); failures += 1 }
 }
 func eq<T: Equatable>(_ a: T, _ b: T, _ msg: String) { check(a == b, "\(a) != \(b) — \(msg)") }
+
+func fixtureAgentState(_ value: String) -> AgentState? {
+    switch value {
+    case "waitingApproval": return .waitingApproval
+    case "waitingInput": return .waitingInput
+    case "waitingImplementation": return .waitingImplementation
+    case "error": return .error
+    case "working": return .working
+    case "done": return .done
+    case "idle": return .idle
+    default: return nil
+    }
+}
+
+func fixtureLightState(_ value: String) -> LightState? {
+    switch value {
+    case "working": return .working
+    case "actionRequired": return .actionRequired
+    case "error": return .error
+    case "done": return .done
+    case "idle": return .idle
+    default: return nil
+    }
+}
+
+func runStateContractFixtures() {
+    let fixtureDirectory = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .appendingPathComponent("fixtures/state-contract", isDirectory: true)
+    let files: [URL]
+    do {
+        files = try FileManager.default.contentsOfDirectory(
+            at: fixtureDirectory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+            .filter { $0.pathExtension == "json" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    } catch {
+        check(false, "state-contract fixtures are unreadable: \(error)")
+        return
+    }
+    check(!files.isEmpty, "state-contract fixtures exist")
+
+    for file in files {
+        let root: [String: Any]
+        do {
+            let object = try JSONSerialization.jsonObject(with: Data(contentsOf: file))
+            guard let dictionary = object as? [String: Any] else {
+                check(false, "\(file.lastPathComponent): root is not an object")
+                continue
+            }
+            root = dictionary
+        } catch {
+            check(false, "\(file.lastPathComponent): invalid JSON: \(error)")
+            continue
+        }
+        eq((root["contractVersion"] as? NSNumber)?.intValue, 1,
+           "\(file.lastPathComponent): supported contract version")
+        guard let scenarios = root["scenarios"] as? [[String: Any]] else {
+            check(false, "\(file.lastPathComponent): scenarios are missing")
+            continue
+        }
+
+        for scenario in scenarios {
+            let name = (scenario["name"] as? String) ?? "unnamed scenario"
+            let context = "\(file.lastPathComponent) / \(name)"
+            guard let now = (scenario["now"] as? NSNumber)?.doubleValue,
+                  let providerValues = scenario["enabledProviders"] as? [String],
+                  let sessionObjects = scenario["sessions"] as? [[String: Any]],
+                  let expected = scenario["expected"] as? [String: Any],
+                  let expectedAgentValue = expected["agentState"] as? String,
+                  let expectedAgent = fixtureAgentState(expectedAgentValue),
+                  let expectedLightValue = expected["lightState"] as? String,
+                  let expectedLight = fixtureLightState(expectedLightValue) else {
+                check(false, "\(context): required fixture fields are invalid")
+                continue
+            }
+            let enabledProviders = Set(providerValues.compactMap(AgentProvider.init(rawValue:)))
+            guard enabledProviders.count == providerValues.count else {
+                check(false, "\(context): enabledProviders contains an unknown provider")
+                continue
+            }
+            let parsedSessions = sessionObjects.compactMap(SessionState.init(json:))
+            guard parsedSessions.count == sessionObjects.count else {
+                check(false, "\(context): a SessionState object is invalid")
+                continue
+            }
+            let ownerLiveness = (scenario["ownerLiveness"] as? [String: Bool]) ?? [:]
+            let terminalNumbers = (scenario["terminalShownAt"] as? [String: NSNumber]) ?? [:]
+            let terminalShownAt = terminalNumbers.mapValues(\.doubleValue)
+            let eligible = parsedSessions.filter {
+                enabledProviders.contains($0.provider) && $0.isDisplayEligible(
+                    now: now, ownerAlive: ownerLiveness[$0.key.persistedValue] ?? false)
+            }
+            let actualAgent = arbitrateAgentState(
+                enabledProviders: enabledProviders, sessions: eligible, now: now,
+                terminalShownAt: terminalShownAt)
+            let selected = selectDisplay(
+                pinned: scenario["pinnedSession"] as? String, sessions: eligible, now: now,
+                terminalShownAt: terminalShownAt)
+            let expectedDisplay = expected["displaySession"] as? String
+
+            eq(actualAgent, expectedAgent, "\(context): global AgentState")
+            eq(actualAgent.lightState, expectedLight, "\(context): global LightState")
+            eq(selected?.key.persistedValue, expectedDisplay, "\(context): UI display session")
+        }
+    }
+}
 
 // NOTE: Swift forbids top-level expressions outside main.swift. The build command pins
 // this file's name (logic_tests.swift), so we wrap the executable body in an @main type.
@@ -208,6 +314,7 @@ eq(LightState(codexState: "done"), .done, "done maps to done")
 eq(LightState(codexState: "idle"), .idle, "idle maps to idle")
 eq(LightState(codexState: nil), .idle, "no selected session maps to idle")
 eq(LightState(codexState: "future-state"), .idle, "unknown states fail safe to idle")
+runStateContractFixtures()
 
 let defaultEffects = GeorgeLightEffectConfiguration.defaults
 eq(defaultEffects.working.mode, .breath, "working uses built-in breath mode")

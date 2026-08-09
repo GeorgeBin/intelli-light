@@ -515,15 +515,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         let terminalTimes = terminalShownAt.mapValues { $0.timeIntervalSince1970 }
         let globalState = arbitrateAgentState(
             enabledProviders: enabled, sessions: all, now: now, terminalShownAt: terminalTimes)
-        let globalLightState: LightState
-        switch globalState {
-        case .working: globalLightState = .working
-        case .waitingApproval, .waitingInput, .waitingImplementation: globalLightState = .actionRequired
-        case .error: globalLightState = .error
-        case .done: globalLightState = .done
-        case .idle: globalLightState = .idle
-        }
-        lightOutput.setLightState(globalLightState)
+        lightOutput.setLightState(globalState.lightState)
         guard let chosen = selectDisplay(
             pinned: pinnedSession, sessions: all, now: now, terminalShownAt: terminalTimes) else {
             render(label: "", color: iconColor, animate: false, startedAt: 0,

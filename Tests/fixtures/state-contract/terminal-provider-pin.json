@@ -1,0 +1,87 @@
+{
+  "contractVersion": 1,
+  "scenarios": [
+    {
+      "name": "done is visible at two second boundary",
+      "now": 40000,
+      "enabledProviders": ["codex"],
+      "terminalShownAt": {"codex:done": 39998},
+      "sessions": [{"provider": "codex", "state": "done", "sessionId": "done", "ts": 40000}],
+      "expected": {"agentState": "done", "lightState": "done", "displaySession": "codex:done"}
+    },
+    {
+      "name": "done expires after two seconds",
+      "now": 40000.001,
+      "enabledProviders": ["codex"],
+      "terminalShownAt": {"codex:done": 39998},
+      "sessions": [{"provider": "codex", "state": "done", "sessionId": "done", "ts": 40000}],
+      "expected": {"agentState": "idle", "lightState": "idle", "displaySession": null}
+    },
+    {
+      "name": "error is visible at two second boundary",
+      "now": 40000,
+      "enabledProviders": ["claude"],
+      "terminalShownAt": {"claude:error": 39998},
+      "sessions": [{"provider": "claude", "state": "error", "sessionId": "error", "ts": 40000}],
+      "expected": {"agentState": "error", "lightState": "error", "displaySession": "claude:error"}
+    },
+    {
+      "name": "expired error reveals working",
+      "now": 40000,
+      "enabledProviders": ["codex", "claude"],
+      "ownerLiveness": {"codex:working": true},
+      "terminalShownAt": {"claude:error": 39997},
+      "sessions": [
+        {"provider": "codex", "state": "working", "sessionId": "working", "ts": 39999, "ownerPid": 401, "ownerKind": "session"},
+        {"provider": "claude", "state": "error", "sessionId": "error", "ts": 40000}
+      ],
+      "expected": {"agentState": "working", "lightState": "working", "displaySession": "codex:working"}
+    },
+    {
+      "name": "disabled Claude provider is ignored",
+      "now": 40000,
+      "enabledProviders": ["codex"],
+      "ownerLiveness": {"claude:approval": true},
+      "sessions": [
+        {"provider": "codex", "state": "done", "sessionId": "done", "ts": 39999},
+        {"provider": "claude", "state": "waitingApproval", "sessionId": "approval", "ts": 40000, "ownerPid": 402, "ownerKind": "session"}
+      ],
+      "expected": {"agentState": "done", "lightState": "done", "displaySession": "codex:done"}
+    },
+    {
+      "name": "no pin uses most recent UI session",
+      "now": 40000,
+      "enabledProviders": ["codex", "claude"],
+      "ownerLiveness": {"codex:approval": true, "claude:working": true},
+      "sessions": [
+        {"provider": "codex", "state": "waitingApproval", "sessionId": "approval", "ts": 39999, "ownerPid": 403, "ownerKind": "session"},
+        {"provider": "claude", "state": "working", "sessionId": "working", "ts": 40000, "ownerPid": 404, "ownerKind": "session"}
+      ],
+      "expected": {"agentState": "waitingApproval", "lightState": "actionRequired", "displaySession": "claude:working"}
+    },
+    {
+      "name": "pin changes UI but not global light state",
+      "now": 40000,
+      "enabledProviders": ["codex", "claude"],
+      "pinnedSession": "codex:approval",
+      "ownerLiveness": {"codex:approval": true, "claude:working": true},
+      "sessions": [
+        {"provider": "codex", "state": "waitingApproval", "sessionId": "approval", "ts": 39999, "ownerPid": 405, "ownerKind": "session"},
+        {"provider": "claude", "state": "working", "sessionId": "working", "ts": 40000, "ownerPid": 406, "ownerKind": "session"}
+      ],
+      "expected": {"agentState": "waitingApproval", "lightState": "actionRequired", "displaySession": "codex:approval"}
+    },
+    {
+      "name": "pin lower priority session does not change global light state",
+      "now": 40000,
+      "enabledProviders": ["codex", "claude"],
+      "pinnedSession": "claude:working",
+      "ownerLiveness": {"codex:approval": true, "claude:working": true},
+      "sessions": [
+        {"provider": "codex", "state": "waitingApproval", "sessionId": "approval", "ts": 39999, "ownerPid": 407, "ownerKind": "session"},
+        {"provider": "claude", "state": "working", "sessionId": "working", "ts": 40000, "ownerPid": 408, "ownerKind": "session"}
+      ],
+      "expected": {"agentState": "waitingApproval", "lightState": "actionRequired", "displaySession": "claude:working"}
+    }
+  ]
+}

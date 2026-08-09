@@ -1,0 +1,89 @@
+{
+  "contractVersion": 1,
+  "scenarios": [
+    {
+      "name": "single waiting approval",
+      "now": 10000,
+      "enabledProviders": ["codex", "claude"],
+      "ownerLiveness": {"codex:approval": true},
+      "sessions": [{"provider": "codex", "state": "waitingApproval", "sessionId": "approval", "ts": 10000, "ownerPid": 101, "ownerKind": "session"}],
+      "expected": {"agentState": "waitingApproval", "lightState": "actionRequired", "displaySession": "codex:approval"}
+    },
+    {
+      "name": "single waiting input",
+      "now": 10000,
+      "enabledProviders": ["codex", "claude"],
+      "ownerLiveness": {"codex:input": true},
+      "sessions": [{"provider": "codex", "state": "waitingInput", "sessionId": "input", "ts": 10000, "ownerPid": 102, "ownerKind": "session"}],
+      "expected": {"agentState": "waitingInput", "lightState": "actionRequired", "displaySession": "codex:input"}
+    },
+    {
+      "name": "single waiting implementation",
+      "now": 10000,
+      "enabledProviders": ["codex", "claude"],
+      "ownerLiveness": {"codex:implementation": true},
+      "sessions": [{"provider": "codex", "state": "waitingImplementation", "sessionId": "implementation", "ts": 10000, "ownerPid": 103, "ownerKind": "session"}],
+      "expected": {"agentState": "waitingImplementation", "lightState": "actionRequired", "displaySession": "codex:implementation"}
+    },
+    {
+      "name": "single error",
+      "now": 10000,
+      "enabledProviders": ["codex", "claude"],
+      "sessions": [{"provider": "claude", "state": "error", "sessionId": "error", "ts": 9999}],
+      "expected": {"agentState": "error", "lightState": "error", "displaySession": "claude:error"}
+    },
+    {
+      "name": "single working",
+      "now": 10000,
+      "enabledProviders": ["codex", "claude"],
+      "ownerLiveness": {"claude:working": true},
+      "sessions": [{"provider": "claude", "state": "working", "sessionId": "working", "ts": 10000, "ownerPid": 104, "ownerKind": "session"}],
+      "expected": {"agentState": "working", "lightState": "working", "displaySession": "claude:working"}
+    },
+    {
+      "name": "single done",
+      "now": 10000,
+      "enabledProviders": ["codex", "claude"],
+      "sessions": [{"provider": "codex", "state": "done", "sessionId": "done", "ts": 9999}],
+      "expected": {"agentState": "done", "lightState": "done", "displaySession": "codex:done"}
+    },
+    {
+      "name": "single idle",
+      "now": 10000,
+      "enabledProviders": ["codex", "claude"],
+      "sessions": [{"provider": "codex", "state": "idle", "sessionId": "idle", "ts": 10000}],
+      "expected": {"agentState": "idle", "lightState": "idle", "displaySession": "codex:idle"}
+    },
+    {
+      "name": "Codex thinking alias",
+      "now": 10000,
+      "enabledProviders": ["codex"],
+      "ownerLiveness": {"codex:thinking": true},
+      "sessions": [{"state": "thinking", "sessionId": "thinking", "ts": 10000, "ownerPid": 105, "ownerKind": "session"}],
+      "expected": {"agentState": "working", "lightState": "working", "displaySession": "codex:thinking"}
+    },
+    {
+      "name": "Codex tool alias",
+      "now": 10000,
+      "enabledProviders": ["codex"],
+      "ownerLiveness": {"codex:tool": true},
+      "sessions": [{"state": "tool", "sessionId": "tool", "ts": 10000, "ownerPid": 106, "ownerKind": "session"}],
+      "expected": {"agentState": "working", "lightState": "working", "displaySession": "codex:tool"}
+    },
+    {
+      "name": "Codex permission alias",
+      "now": 10000,
+      "enabledProviders": ["codex"],
+      "ownerLiveness": {"codex:permission": true},
+      "sessions": [{"state": "permission", "sessionId": "permission", "ts": 10000, "ownerPid": 107, "ownerKind": "session"}],
+      "expected": {"agentState": "waitingApproval", "lightState": "actionRequired", "displaySession": "codex:permission"}
+    },
+    {
+      "name": "unknown state fails safe",
+      "now": 10000,
+      "enabledProviders": ["codex"],
+      "sessions": [{"state": "futureState", "sessionId": "future", "ts": 10000}],
+      "expected": {"agentState": "idle", "lightState": "idle", "displaySession": "codex:future"}
+    }
+  ]
+}

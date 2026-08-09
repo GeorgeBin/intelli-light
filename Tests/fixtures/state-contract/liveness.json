@@ -1,0 +1,89 @@
+{
+  "contractVersion": 1,
+  "scenarios": [
+    {
+      "name": "waiting input remains live past stale window",
+      "now": 30000,
+      "enabledProviders": ["codex"],
+      "ownerLiveness": {"codex:input": true},
+      "sessions": [{"provider": "codex", "state": "waitingInput", "sessionId": "input", "ts": 29000, "ownerPid": 301, "ownerKind": "global"}],
+      "expected": {"agentState": "waitingInput", "lightState": "actionRequired", "displaySession": "codex:input"}
+    },
+    {
+      "name": "waiting implementation remains live past stale window",
+      "now": 30000,
+      "enabledProviders": ["codex"],
+      "ownerLiveness": {"codex:implementation": true},
+      "sessions": [{"provider": "codex", "state": "waitingImplementation", "sessionId": "implementation", "ts": 29000, "ownerPid": 302, "ownerKind": "global"}],
+      "expected": {"agentState": "waitingImplementation", "lightState": "actionRequired", "displaySession": "codex:implementation"}
+    },
+    {
+      "name": "action required owner exit reveals done",
+      "now": 30000,
+      "enabledProviders": ["codex", "claude"],
+      "ownerLiveness": {"codex:input": false},
+      "sessions": [
+        {"provider": "codex", "state": "waitingInput", "sessionId": "input", "ts": 29000, "ownerPid": 303, "ownerKind": "global"},
+        {"provider": "claude", "state": "done", "sessionId": "done", "ts": 29999}
+      ],
+      "expected": {"agentState": "done", "lightState": "done", "displaySession": "claude:done"}
+    },
+    {
+      "name": "working session owner exit reveals done",
+      "now": 30000,
+      "enabledProviders": ["codex", "claude"],
+      "ownerLiveness": {"codex:working": false},
+      "sessions": [
+        {"provider": "codex", "state": "working", "sessionId": "working", "ts": 30000, "ownerPid": 304, "ownerKind": "session"},
+        {"provider": "claude", "state": "done", "sessionId": "done", "ts": 29999}
+      ],
+      "expected": {"agentState": "done", "lightState": "done", "displaySession": "claude:done"}
+    },
+    {
+      "name": "ownerless action required is eligible at 60 seconds",
+      "now": 30000,
+      "enabledProviders": ["codex"],
+      "sessions": [{"provider": "codex", "state": "waitingApproval", "sessionId": "approval", "ts": 29940}],
+      "expected": {"agentState": "waitingApproval", "lightState": "actionRequired", "displaySession": "codex:approval"}
+    },
+    {
+      "name": "ownerless action required expires after 60 seconds",
+      "now": 30000,
+      "enabledProviders": ["codex"],
+      "sessions": [{"provider": "codex", "state": "waitingApproval", "sessionId": "approval", "ts": 29939}],
+      "expected": {"agentState": "idle", "lightState": "idle", "displaySession": null}
+    },
+    {
+      "name": "reliable working owner is eligible at 900 seconds",
+      "now": 30000,
+      "enabledProviders": ["claude"],
+      "ownerLiveness": {"claude:working": true},
+      "sessions": [{"provider": "claude", "state": "working", "sessionId": "working", "ts": 29100, "ownerPid": 305, "ownerKind": "session"}],
+      "expected": {"agentState": "working", "lightState": "working", "displaySession": "claude:working"}
+    },
+    {
+      "name": "reliable working owner cannot bypass stale window",
+      "now": 30000,
+      "enabledProviders": ["claude"],
+      "ownerLiveness": {"claude:working": true},
+      "sessions": [{"provider": "claude", "state": "working", "sessionId": "working", "ts": 29099, "ownerPid": 306, "ownerKind": "session"}],
+      "expected": {"agentState": "idle", "lightState": "idle", "displaySession": null}
+    },
+    {
+      "name": "global working owner is eligible at 60 seconds",
+      "now": 30000,
+      "enabledProviders": ["codex"],
+      "ownerLiveness": {"codex:working": true},
+      "sessions": [{"provider": "codex", "state": "working", "sessionId": "working", "ts": 29940, "ownerPid": 307, "ownerKind": "global"}],
+      "expected": {"agentState": "working", "lightState": "working", "displaySession": "codex:working"}
+    },
+    {
+      "name": "global working owner does not extend 60 second display",
+      "now": 30000,
+      "enabledProviders": ["codex"],
+      "ownerLiveness": {"codex:working": true},
+      "sessions": [{"provider": "codex", "state": "working", "sessionId": "working", "ts": 29939, "ownerPid": 308, "ownerKind": "global"}],
+      "expected": {"agentState": "idle", "lightState": "idle", "displaySession": null}
+    }
+  ]
+}
