@@ -3,6 +3,12 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::str::FromStr;
 
+pub mod config;
+pub mod daemon;
+pub mod george_light;
+pub mod hooks;
+pub mod state_store;
+
 pub const STALE_AFTER_SECONDS: f64 = 900.0;
 pub const UNRELIABLE_OWNER_SECONDS: f64 = 60.0;
 pub const TERMINAL_VISIBLE_SECONDS: f64 = 2.0;
@@ -250,6 +256,19 @@ pub trait OwnerLiveness {
     fn is_alive(&self, session: &SessionState) -> bool;
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LinuxPidLiveness;
+
+impl OwnerLiveness for LinuxPidLiveness {
+    fn is_alive(&self, session: &SessionState) -> bool {
+        linux_pid_alive(session.owner_pid)
+    }
+}
+
+pub fn linux_pid_alive(pid: u32) -> bool {
+    pid > 0 && std::path::Path::new("/proc").join(pid.to_string()).exists()
+}
+
 impl<F> OwnerLiveness for F
 where
     F: Fn(&SessionState) -> bool,
@@ -344,5 +363,12 @@ mod tests {
         assert!(pinned_session_matches("codex:abc", &session));
         assert!(pinned_session_matches("abc", &session));
         assert!(!pinned_session_matches("claude:abc", &session));
+    }
+
+    #[test]
+    fn linux_pid_liveness_finds_current_process() {
+        assert!(linux_pid_alive(std::process::id()));
+        assert!(!linux_pid_alive(0));
+        assert!(!linux_pid_alive(u32::MAX));
     }
 }

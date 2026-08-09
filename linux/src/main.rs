@@ -1,49 +1,93 @@
-use intelli_light_linux::{arbitrate, AgentProvider, SessionState};
+use intelli_light_linux::config::{config_path, Config};
+use intelli_light_linux::george_light::{GeorgeLightOutput, HttpTransport, TcpHttpTransport};
+use intelli_light_linux::state_store;
+use intelli_light_linux::{arbitrate, hooks, LinuxPidLiveness};
 use std::collections::{HashMap, HashSet};
 use std::env;
-use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn main() {
-    let mut arguments = env::args();
+    let arguments: Vec<String> = env::args().collect();
     let program = arguments
-        .next()
-        .unwrap_or_else(|| "intelli-light-linux".to_owned());
-    match (arguments.next().as_deref(), arguments.next()) {
-        (Some("status"), None) => {
-            if let Err(error) = status() {
-                eprintln!("{program}: {error}");
-                std::process::exit(1);
-            }
-        }
-        _ => {
-            eprintln!("Usage: {program} status");
-            std::process::exit(2);
-        }
+        .first()
+        .map(String::as_str)
+        .unwrap_or("intelli-light-linux");
+    if let Err(error) = dispatch(&arguments[1..]) {
+        eprintln!("{program}: {error}");
+        std::process::exit(1);
     }
 }
 
-fn status() -> Result<(), Box<dyn std::error::Error>> {
-    let home = env::var_os("HOME").ok_or("HOME is not set")?;
-    let home = PathBuf::from(home);
-    let mut sessions = Vec::new();
-    let mut warnings = Vec::new();
-    for (provider, relative) in [
-        (AgentProvider::Codex, ".codex/statusbar/states.d"),
-        (AgentProvider::Claude, ".claude/statusbar/states.d"),
-    ] {
-        read_sessions(&home.join(relative), provider, &mut sessions, &mut warnings)?;
+fn dispatch(arguments: &[String]) -> Result<(), String> {
+    let home = home_directory()?;
+    let path = config_path(&home);
+    match arguments {
+        [command] if command == "status" => status(&home, &Config::load(&path)?),
+        [command] if command == "daemon" => {
+            intelli_light_linux::daemon::run(&home, Config::load(&path)?)
+        }
+        [group, action] if group == "hooks" && action == "install" => {
+            let config = Config::load(&path)?;
+            if !path.exists() {
+                config.save(&path)?;
+            }
+            print_changes(hooks::install(&home, &config)?);
+            Ok(())
+        }
+        [group, action] if group == "hooks" && action == "sync" => {
+            let config = Config::load(&path)?;
+            print_changes(hooks::sync(&home, &config)?);
+            Ok(())
+        }
+        [group, action] if group == "hooks" && action == "uninstall" => {
+            print_changes(hooks::uninstall(&home)?);
+            Ok(())
+        }
+        [group, action] if group == "config" && action == "show" => {
+            let config = Config::load(&path)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&config).map_err(|error| error.to_string())?
+            );
+            Ok(())
+        }
+        [group, action] if group == "george-light" && action == "probe" => {
+            let config = Config::load(&path)?;
+            let output = GeorgeLightOutput::new(config.george_light)?;
+            let request = output.clear_request()?;
+            let status = TcpHttpTransport
+                .send(&request)
+                .map_err(|error| error.to_string())?;
+            println!("GeorgeLight clear response: HTTP {status}");
+            if !(200..300).contains(&status) {
+                return Err(format!("GeorgeLight returned HTTP {status}"));
+            }
+            Ok(())
+        }
+        [group, action, key, value] if group == "config" && action == "set" => {
+            let mut config = Config::load(&path)?;
+            config.set(key, value)?;
+            config.save(&path)?;
+            println!("updated {key} in {}", path.display());
+            Ok(())
+        }
+        _ => Err(usage()),
     }
+}
 
-    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs_f64();
-    let enabled: HashSet<_> = AgentProvider::ALL.into_iter().collect();
+fn status(home: &Path, config: &Config) -> Result<(), String> {
+    let snapshot = state_store::load(home);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_secs_f64();
+    let enabled: HashSet<_> = config.enabled_providers.iter().copied().collect();
     let result = arbitrate(
         &enabled,
-        &sessions,
+        &snapshot.sessions,
         now,
-        &|session: &SessionState| linux_pid_alive(session.owner_pid),
+        &LinuxPidLiveness,
         &HashMap::new(),
         None,
     );
@@ -66,44 +110,35 @@ fn status() -> Result<(), Box<dyn std::error::Error>> {
             session.owner_pid
         );
     }
-    for warning in warnings {
+    println!(
+        "Lifecycle session files ({}): {}",
+        snapshot.active_session_files.len(),
+        if snapshot.active_session_files.is_empty() {
+            "none".to_owned()
+        } else {
+            snapshot.active_session_files.join(", ")
+        }
+    );
+    for warning in snapshot.warnings {
         eprintln!("warning: {warning}");
     }
     Ok(())
 }
 
-fn read_sessions(
-    directory: &Path,
-    provider: AgentProvider,
-    sessions: &mut Vec<SessionState>,
-    warnings: &mut Vec<String>,
-) -> io::Result<()> {
-    let entries = match fs::read_dir(directory) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error),
-    };
-    for entry in entries {
-        let entry = entry?;
-        if entry.file_name().to_string_lossy().ends_with(".tmp") || !entry.file_type()?.is_file() {
-            continue;
-        }
-        match fs::read(entry.path())
-            .map_err(|error| error.to_string())
-            .and_then(|data| SessionState::from_json(&data).map_err(|error| error.to_string()))
-        {
-            Ok(mut session) => {
-                session.provider = provider;
-                sessions.push(session);
-            }
-            Err(error) => warnings.push(format!("{}: {error}", entry.path().display())),
-        }
-    }
-    Ok(())
+fn home_directory() -> Result<PathBuf, String> {
+    env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| "HOME is not set".to_owned())
 }
 
-fn linux_pid_alive(pid: u32) -> bool {
-    pid > 0 && Path::new("/proc").join(pid.to_string()).exists()
+fn print_changes(changes: Vec<String>) {
+    if changes.is_empty() {
+        println!("hooks already synchronized");
+    } else {
+        for change in changes {
+            println!("{change}");
+        }
+    }
 }
 
 fn value_or_dash(value: &str) -> &str {
@@ -112,4 +147,17 @@ fn value_or_dash(value: &str) -> &str {
     } else {
         value
     }
+}
+
+fn usage() -> String {
+    [
+        "Usage:",
+        "  intelli-light-linux status",
+        "  intelli-light-linux daemon",
+        "  intelli-light-linux hooks install|uninstall|sync",
+        "  intelli-light-linux config show",
+        "  intelli-light-linux config set <key> <value>",
+        "  intelli-light-linux george-light probe",
+    ]
+    .join("\n")
 }
