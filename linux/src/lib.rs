@@ -7,6 +7,7 @@ pub mod config;
 pub mod daemon;
 pub mod george_light;
 pub mod hooks;
+pub mod ipc;
 pub mod state_store;
 
 pub const STALE_AFTER_SECONDS: f64 = 900.0;
@@ -91,6 +92,18 @@ impl AgentState {
             Self::Idle => LightState::Idle,
         }
     }
+
+    pub const fn wire_value(self) -> &'static str {
+        match self {
+            Self::WaitingApproval => "waitingApproval",
+            Self::WaitingInput => "waitingInput",
+            Self::WaitingImplementation => "waitingImplementation",
+            Self::Error => "error",
+            Self::Working => "working",
+            Self::Done => "done",
+            Self::Idle => "idle",
+        }
+    }
 }
 
 impl fmt::Display for AgentState {
@@ -125,6 +138,18 @@ impl fmt::Display for LightState {
             Self::Done => "Done",
             Self::Idle => "Idle",
         })
+    }
+}
+
+impl LightState {
+    pub const fn wire_value(self) -> &'static str {
+        match self {
+            Self::Working => "working",
+            Self::ActionRequired => "actionRequired",
+            Self::Error => "error",
+            Self::Done => "done",
+            Self::Idle => "idle",
+        }
     }
 }
 

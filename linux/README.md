@@ -30,3 +30,19 @@ intelli-light-linux config set effects.working.brightness 70
 
 Effect names are `working`, `actionRequired`, `error`, and `done`. Hook provider
 changes take effect after `intelli-light-linux hooks sync`.
+
+## KDE Plasma desktop
+
+The optional desktop is a separate C++20 Qt6/KF6 application. The daemon remains
+the only GeorgeLight owner; the UI communicates over
+`$XDG_RUNTIME_DIR/intelli-light/daemon.sock` using newline-delimited JSON.
+
+```sh
+cmake -S desktop -B desktop/build -DCMAKE_BUILD_TYPE=Release
+cmake --build desktop/build
+cmake --install desktop/build
+intelli-light-desktop
+```
+
+Closing the window hides it to the Plasma system tray. “Quit Desktop” exits only
+the UI and leaves `intelli-light.service` running.

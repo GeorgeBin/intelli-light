@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Intelli Light
+Comment=Native KDE desktop for agent status and GeorgeLight configuration
+Exec=intelli-light-desktop
+Icon=intelli-light
+Terminal=false
+Categories=Development;Utility;
+StartupNotify=true
+X-KDE-StartupNotify=true

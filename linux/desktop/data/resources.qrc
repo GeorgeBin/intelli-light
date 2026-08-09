@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/icons">
+    <file alias="intelli-light.svg">icons/intelli-light.svg</file>
+  </qresource>
+</RCC>

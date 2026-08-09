@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::george_light::{GeorgeLightOutput, HttpTransport, TcpHttpTransport};
+use crate::ipc::{handle_request, socket_path, IpcServer, IpcSnapshot};
 use crate::state_store;
 use crate::{arbitrate, AgentProvider, LightState, LinuxPidLiveness};
 use std::collections::{HashMap, HashSet};
@@ -14,17 +15,18 @@ extern "C" fn stop(_signal: libc::c_int) {
     RUNNING.store(false, Ordering::SeqCst);
 }
 
-pub fn run(home: &Path, config: Config) -> Result<(), String> {
+pub fn run(home: &Path, mut config: Config) -> Result<(), String> {
     install_signal_handlers();
-    let enabled: HashSet<_> = config.enabled_providers.iter().copied().collect();
     let mut output = GeorgeLightOutput::new(config.george_light.clone())?;
     let mut transport = TcpHttpTransport;
+    let ipc = IpcServer::bind(socket_path())?;
     let started = Instant::now();
     let mut previous = None;
 
     while RUNNING.load(Ordering::SeqCst) {
         let snapshot = state_store::load(home);
         let now = unix_now()?;
+        let enabled: HashSet<_> = config.enabled_providers.iter().copied().collect();
         let result = arbitrate(
             &enabled,
             &snapshot.sessions,
@@ -51,6 +53,26 @@ pub fn run(home: &Path, config: Config) -> Result<(), String> {
         let monotonic = started.elapsed().as_secs_f64();
         if let Err(error) = output.drive(monotonic, &mut transport) {
             eprintln!("GeorgeLight request failed: {error}");
+        }
+        let ipc_snapshot =
+            IpcSnapshot::build(&config, &snapshot.sessions, now, output.connectivity());
+        loop {
+            let client = match ipc.accept() {
+                Ok(Some(client)) => client,
+                Ok(None) => break,
+                Err(error) => {
+                    eprintln!("IPC request failed: {error}");
+                    break;
+                }
+            };
+            let prior_george_light = config.george_light.clone();
+            let response = handle_request(&client.request, home, &mut config, &ipc_snapshot);
+            if config.george_light != prior_george_light {
+                output.update_config(config.george_light.clone(), monotonic)?;
+            }
+            if let Err(error) = client.respond(&response) {
+                eprintln!("IPC response failed: {error}");
+            }
         }
         thread::sleep(Duration::from_millis(250));
     }

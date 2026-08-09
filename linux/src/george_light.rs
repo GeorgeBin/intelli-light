@@ -8,6 +8,25 @@ use std::time::Duration;
 pub const LEASE_REFRESH_SECONDS: f64 = 240.0;
 pub const RETRY_DELAYS_SECONDS: [f64; 5] = [2.0, 5.0, 10.0, 30.0, 60.0];
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Connectivity {
+    Disabled,
+    Unknown,
+    Connected,
+    Retrying,
+}
+
+impl Connectivity {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Disabled => "disabled",
+            Self::Unknown => "unknown",
+            Self::Connected => "connected",
+            Self::Retrying => "retrying",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HttpRequest {
     pub host: String,
@@ -87,11 +106,17 @@ pub struct GeorgeLightOutput {
     retry_attempt: usize,
     next_due: Option<f64>,
     pending_disable_clear: bool,
+    connectivity: Connectivity,
 }
 
 impl GeorgeLightOutput {
     pub fn new(config: GeorgeLightConfig) -> Result<Self, String> {
         validate_http_address(&config.address)?;
+        let connectivity = if config.enabled {
+            Connectivity::Unknown
+        } else {
+            Connectivity::Disabled
+        };
         Ok(Self {
             config,
             desired_state: None,
@@ -100,6 +125,7 @@ impl GeorgeLightOutput {
             retry_attempt: 0,
             next_due: None,
             pending_disable_clear: false,
+            connectivity,
         })
     }
 
@@ -122,6 +148,34 @@ impl GeorgeLightOutput {
         self.retry_attempt = 0;
         self.next_due = Some(now);
         self.pending_disable_clear = !enabled;
+        self.connectivity = if enabled {
+            Connectivity::Unknown
+        } else {
+            Connectivity::Disabled
+        };
+    }
+
+    pub fn update_config(&mut self, config: GeorgeLightConfig, now: f64) -> Result<(), String> {
+        validate_http_address(&config.address)?;
+        if self.config == config {
+            return Ok(());
+        }
+        let was_enabled = self.config.enabled;
+        self.config = config;
+        self.desired_generation = self.desired_generation.wrapping_add(1);
+        self.retry_attempt = 0;
+        self.next_due = Some(now);
+        self.pending_disable_clear = was_enabled && !self.config.enabled;
+        self.connectivity = if self.config.enabled {
+            Connectivity::Unknown
+        } else {
+            Connectivity::Disabled
+        };
+        Ok(())
+    }
+
+    pub const fn connectivity(&self) -> Connectivity {
+        self.connectivity
     }
 
     pub fn next_request(&mut self, now: f64) -> Result<Option<PendingRequest>, String> {
@@ -153,6 +207,7 @@ impl GeorgeLightOutput {
     pub fn complete(&mut self, pending: &PendingRequest, succeeded: bool, now: f64) {
         self.in_flight = false;
         if pending.disable_clear {
+            self.connectivity = Connectivity::Disabled;
             return;
         }
         if !self.config.enabled
@@ -165,6 +220,7 @@ impl GeorgeLightOutput {
             return;
         }
         if succeeded {
+            self.connectivity = Connectivity::Connected;
             self.retry_attempt = 0;
             self.next_due = matches!(
                 pending.state,
@@ -172,6 +228,7 @@ impl GeorgeLightOutput {
             )
             .then_some(now + LEASE_REFRESH_SECONDS);
         } else {
+            self.connectivity = Connectivity::Retrying;
             let index = self.retry_attempt.min(RETRY_DELAYS_SECONDS.len() - 1);
             self.next_due = Some(now + RETRY_DELAYS_SECONDS[index]);
             self.retry_attempt = (self.retry_attempt + 1).min(RETRY_DELAYS_SECONDS.len());
