@@ -100,6 +100,7 @@ void DesktopTests::hexValidationAndNormalization()
     QVERIFY(!ColorUtils::isValidHex(QStringLiteral("#4D8FF")));    // too short
     QVERIFY(!ColorUtils::isValidHex(QStringLiteral("4D8FFF")));    // missing '#'
     QVERIFY(!ColorUtils::isValidHex(QStringLiteral("#4D8FFG")));   // non-hex digit
+    QVERIFY(!ColorUtils::isValidHex(QStringLiteral("#4D8FF１")));  // non-ASCII digit
     QVERIFY(!ColorUtils::isValidHex(QStringLiteral("#4D8FFFF")));  // too long
     QVERIFY(!ColorUtils::isValidHex(QStringLiteral("#4D8F")));     // too short
     QVERIFY(!ColorUtils::isValidHex(QString()));

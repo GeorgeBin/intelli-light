@@ -9,7 +9,7 @@ bool isValidHex(const QString &text)
     }
     for (int index = 1; index < 7; ++index) {
         const QChar character = text.at(index);
-        const bool digit = character.isDigit();
+        const bool digit = character >= QLatin1Char('0') && character <= QLatin1Char('9');
         const bool lowercase = character >= QLatin1Char('a') && character <= QLatin1Char('f');
         const bool uppercase = character >= QLatin1Char('A') && character <= QLatin1Char('F');
         if (!digit && !lowercase && !uppercase) {

@@ -194,6 +194,42 @@ fn disable_clear_retry_survives_disabled_config_update() {
 }
 
 #[test]
+fn disable_config_update_while_clear_in_flight_rearms_clear() {
+    for stale_clear_succeeded in [true, false] {
+        let mut gl = output();
+        gl.set_state(LightState::Working, 0.0);
+        let display = gl.next_request(0.0).unwrap().unwrap();
+        gl.complete(&display, true, 0.0);
+
+        gl.set_enabled(false, 1.0);
+        let old_clear = gl.next_request(1.0).unwrap().unwrap();
+        assert_eq!(old_clear.request.path, "/api/v1/codex/clear");
+        assert_eq!(old_clear.request.host, "george-light-zero.local");
+
+        let mut updated = Config::default().george_light;
+        updated.enabled = false;
+        updated.address = "http://updated-lamp.local:8080".to_owned();
+        gl.update_config(updated, 1.1).unwrap();
+
+        // The old generation is still in flight, so the replacement clear must
+        // be armed without allowing a second concurrent HTTP request.
+        assert!(gl.next_request(1.1).unwrap().is_none());
+        gl.complete(&old_clear, stale_clear_succeeded, 1.2);
+        assert_ne!(gl.connectivity(), Connectivity::Disabled);
+
+        let new_clear = gl.next_request(1.2).unwrap().unwrap();
+        assert_eq!(new_clear.request.path, "/api/v1/codex/clear");
+        assert_eq!(new_clear.request.host, "updated-lamp.local");
+        assert_eq!(new_clear.request.port, 8080);
+        assert_eq!(gl.connectivity(), Connectivity::Retrying);
+
+        gl.complete(&new_clear, true, 1.2);
+        assert_eq!(gl.connectivity(), Connectivity::Disabled);
+        assert!(gl.next_request(1.2).unwrap().is_none());
+    }
+}
+
+#[test]
 fn json_output_uses_display_path_and_idle_maps_to_clear() {
     let config = json!({
         "enabled": true,

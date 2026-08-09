@@ -166,10 +166,11 @@ impl GeorgeLightOutput {
         self.desired_generation = self.desired_generation.wrapping_add(1);
         self.retry_attempt = 0;
         self.next_due = Some(now);
-        // Arm the clear on a fresh disable; keep an in-flight disable-clear retry
-        // alive when an already-disabled config is updated.
+        // Every disabled generation that has not successfully cleared must own a
+        // clear. This also rearms a clear when the previous generation is still
+        // in flight; the in-flight gate keeps the replacement request serialized.
         self.pending_disable_clear =
-            !self.config.enabled && (self.pending_disable_clear || was_enabled);
+            !self.config.enabled && self.connectivity != Connectivity::Disabled;
         self.connectivity = match (was_enabled, self.config.enabled) {
             // Enabling always moves back to an unknown-but-wanted state.
             (_, true) => Connectivity::Unknown,
