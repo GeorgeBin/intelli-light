@@ -1,4 +1,4 @@
-use intelli_light_linux::config::{config_path, Config, Effect};
+use intelli_light_linux::config::{config_path, Config, Effect, DEFAULT_GEORGE_LIGHT_ADDRESS};
 use intelli_light_linux::daemon::evaluate_light;
 use intelli_light_linux::george_light::{GeorgeLightOutput, LEASE_REFRESH_SECONDS};
 use intelli_light_linux::{hooks, AgentProvider, LightState};
@@ -43,10 +43,7 @@ fn config_defaults_round_trip_and_set_all_required_fields() {
         config.enabled_providers,
         vec![AgentProvider::Codex, AgentProvider::Claude]
     );
-    assert_eq!(
-        config.george_light.address,
-        "http://george-light-zero.local"
-    );
+    assert_eq!(config.george_light.address, DEFAULT_GEORGE_LIGHT_ADDRESS);
     assert_eq!(config.george_light.effects.working, Effect::working());
     config.set("providers", "claude").unwrap();
     config.set("georgeLight.enabled", "false").unwrap();

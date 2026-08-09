@@ -5,6 +5,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+pub const DEFAULT_GEORGE_LIGHT_ADDRESS: &str = "http://george-light-zero.local";
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -252,7 +254,7 @@ fn default_true() -> bool {
 }
 
 fn default_address() -> String {
-    "http://george-light-zero.local".to_owned()
+    DEFAULT_GEORGE_LIGHT_ADDRESS.to_owned()
 }
 
 #[cfg(unix)]
