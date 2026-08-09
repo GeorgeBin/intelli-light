@@ -115,7 +115,16 @@ Run the tests:
 ```bash
 node --test Tests/install.test.mjs
 node --test Tests/update.test.mjs
-swiftc Tests/logic_tests.swift Sources/SessionState.swift -o /tmp/csbt && /tmp/csbt
+swiftc Tests/logic_tests.swift Sources/SessionState.swift Sources/AppSupport.swift Sources/LightOutput.swift -o /tmp/csbt && /tmp/csbt
+swiftc Tests/light_output_tests.swift Sources/LightOutput.swift Sources/GeorgeLightHttpOutput.swift -o /tmp/light-output-tests && /tmp/light-output-tests
+```
+
+GeorgeLight output defaults to `http://george-light-zero.local`. To use a different
+GeorgeLight 1.0.1 device address, set `georgeLightBaseURL` for the existing app domain
+and restart the app:
+
+```bash
+defaults write io.github.kiwigaze.codexstatusbar georgeLightBaseURL "http://192.168.1.45"
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the build, formatting, and PR workflow.

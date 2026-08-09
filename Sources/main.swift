@@ -5,6 +5,7 @@ import Cocoa
 
 final class StatusController: NSObject, NSMenuDelegate {
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    let lightOutput: LightOutput = GeorgeLightHttpOutput()
     let statesDir = (NSHomeDirectory() as NSString).appendingPathComponent(".codex/statusbar/states.d")
     let legacyStatePath = (NSHomeDirectory() as NSString).appendingPathComponent(".codex/statusbar/state.json")
     let sessionsDir = (NSHomeDirectory() as NSString).appendingPathComponent(".codex/statusbar/sessions.d")
@@ -340,12 +341,14 @@ final class StatusController: NSObject, NSMenuDelegate {
         let all = sessions.map { $0.value.state }.filter { displayEligible($0, now: now) }
         let doneTimes = doneShownAt.mapValues { $0.timeIntervalSince1970 }
         guard let chosen = selectDisplay(pinned: pinnedSession, sessions: all, now: now, doneShownAt: doneTimes) else {
+            lightOutput.setLightState(.idle)
             render(label: "", color: iconColor, animate: false, startedAt: 0,
                    pausedTotal: 0, pauseStart: 0)
             return
         }
         let label = chosen.label
         let state = chosen.state
+        lightOutput.setLightState(LightState(codexState: state))
 
         // No age>900 safety net here: selectDisplay already excludes sessions older
         // than staleAfter=900s, and stuck-turn logging fires in loadSessions. By the

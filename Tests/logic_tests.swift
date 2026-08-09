@@ -74,6 +74,20 @@ eq(selectDisplay(pinned: nil, sessions: [sA, doneRecent], now: now, doneShownAt:
 eq(selectDisplay(pinned: "done-expired", sessions: [sA, doneExpired], now: now, doneShownAt: ["done-expired": now - 3])?.sessionId, "a", "pinned expired done falls back to active session")
 eq(selectDisplay(pinned: nil, sessions: [sA, doneStaleNoSentinel], now: now)?.sessionId, "a", "done without sentinel uses state timestamp and does not replay after window")
 
+// ---- final Codex state -> GeorgeLight state ----
+eq(LightState(codexState: "thinking"), .working, "thinking maps to working")
+eq(LightState(codexState: "tool"), .working, "tool maps to working")
+eq(LightState(codexState: "permission"), .waitingApproval, "permission maps to waiting approval")
+eq(LightState(codexState: "done"), .done, "done maps to done")
+eq(LightState(codexState: "idle"), .idle, "idle maps to idle")
+eq(LightState(codexState: nil), .idle, "no selected session maps to idle")
+eq(LightState(codexState: "future-state"), .idle, "unknown states fail safe to idle")
+
+eq(GeorgeLightEffects.working.modeID, 3, "working uses built-in breath mode")
+eq(GeorgeLightEffects.waitingApproval.modeID, 4, "approval uses built-in fast blink mode")
+eq(GeorgeLightEffects.done.modeID, 1, "done uses built-in solid mode")
+eq(GeorgeLightEffects.effect(for: .idle), nil, "idle has no display effect")
+
 // ---- installer launch and private log helpers ----
 let oddInstaller = "/Applications/Codex \" $(touch /tmp/nope) Status Bar.app/Contents/Resources/install.js"
 let installConfig = installerLaunchConfiguration(installer: oddInstaller, environment: ["PATH": "/usr/bin"])

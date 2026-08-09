@@ -17,8 +17,10 @@ jobs:
         run: SKIP_NOTARIZE=1 ./build.sh
       - name: Swift logic tests
         run: |
-          swiftc Tests/logic_tests.swift Sources/SessionState.swift Sources/AppSupport.swift -o "$RUNNER_TEMP/csbt"
+          swiftc Tests/logic_tests.swift Sources/SessionState.swift Sources/AppSupport.swift Sources/LightOutput.swift -o "$RUNNER_TEMP/csbt"
           "$RUNNER_TEMP/csbt"
+          swiftc Tests/light_output_tests.swift Sources/LightOutput.swift Sources/GeorgeLightHttpOutput.swift -o "$RUNNER_TEMP/light-output-tests"
+          "$RUNNER_TEMP/light-output-tests"
       - name: Node tests
         run: |
           node --test Tests/install.test.mjs
