@@ -151,7 +151,8 @@ impl GeorgeLightOutput {
         self.connectivity = if enabled {
             Connectivity::Unknown
         } else {
-            Connectivity::Disabled
+            // Not formally disabled until the disable-clear lands.
+            Connectivity::Retrying
         };
     }
 
@@ -165,11 +166,17 @@ impl GeorgeLightOutput {
         self.desired_generation = self.desired_generation.wrapping_add(1);
         self.retry_attempt = 0;
         self.next_due = Some(now);
-        self.pending_disable_clear = was_enabled && !self.config.enabled;
-        self.connectivity = if self.config.enabled {
-            Connectivity::Unknown
-        } else {
-            Connectivity::Disabled
+        // Arm the clear on a fresh disable; keep an in-flight disable-clear retry
+        // alive when an already-disabled config is updated.
+        self.pending_disable_clear =
+            !self.config.enabled && (self.pending_disable_clear || was_enabled);
+        self.connectivity = match (was_enabled, self.config.enabled) {
+            // Enabling always moves back to an unknown-but-wanted state.
+            (_, true) => Connectivity::Unknown,
+            // Freshly disabled: the clear must succeed before we report Disabled.
+            (true, false) => Connectivity::Retrying,
+            // Already disabled: keep the previous connectivity (e.g. a retry in flight).
+            (false, false) => self.connectivity,
         };
         Ok(())
     }
@@ -207,7 +214,7 @@ impl GeorgeLightOutput {
     pub fn complete(&mut self, pending: &PendingRequest, succeeded: bool, now: f64) {
         self.in_flight = false;
         if pending.disable_clear {
-            self.connectivity = Connectivity::Disabled;
+            self.complete_disable_clear(pending, succeeded, now);
             return;
         }
         if !self.config.enabled
@@ -229,6 +236,28 @@ impl GeorgeLightOutput {
             .then_some(now + LEASE_REFRESH_SECONDS);
         } else {
             self.connectivity = Connectivity::Retrying;
+            let index = self.retry_attempt.min(RETRY_DELAYS_SECONDS.len() - 1);
+            self.next_due = Some(now + RETRY_DELAYS_SECONDS[index]);
+            self.retry_attempt = (self.retry_attempt + 1).min(RETRY_DELAYS_SECONDS.len());
+        }
+    }
+
+    fn complete_disable_clear(&mut self, pending: &PendingRequest, succeeded: bool, now: f64) {
+        // A stale completion (the user re-enabled, or a newer disable superseded
+        // this one) must not overwrite the current state.
+        if self.config.enabled || pending.generation != self.desired_generation {
+            if self.config.enabled && self.desired_state.is_some() {
+                self.next_due = Some(now);
+            }
+            return;
+        }
+        if succeeded {
+            self.connectivity = Connectivity::Disabled;
+        } else {
+            // Not formally disabled until the clear lands: retry it with the
+            // standard backoff, capping at 60 s and continuing at that interval.
+            self.connectivity = Connectivity::Retrying;
+            self.pending_disable_clear = true;
             let index = self.retry_attempt.min(RETRY_DELAYS_SECONDS.len() - 1);
             self.next_due = Some(now + RETRY_DELAYS_SECONDS[index]);
             self.retry_attempt = (self.retry_attempt + 1).min(RETRY_DELAYS_SECONDS.len());
