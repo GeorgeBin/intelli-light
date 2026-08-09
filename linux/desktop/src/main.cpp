@@ -11,9 +11,9 @@ int main(int argc, char **argv)
 {
     QApplication application(argc, argv);
     application.setQuitOnLastWindowClosed(false);
-    QCoreApplication::setOrganizationDomain(QStringLiteral("io.github.kiwigaze"));
+    QCoreApplication::setOrganizationDomain(QStringLiteral("io.github.georgebin"));
     QCoreApplication::setApplicationName(QStringLiteral("intelli-light-desktop"));
-    QGuiApplication::setDesktopFileName(QStringLiteral("io.github.kiwigaze.intelli-light"));
+    QGuiApplication::setDesktopFileName(QStringLiteral("io.github.georgebin.intelli-light"));
 
     KLocalizedString::setApplicationDomain("intelli-light");
     KAboutData aboutData(
@@ -23,7 +23,7 @@ int main(int argc, char **argv)
         i18n("Native KDE Plasma desktop for Intelli Light"),
         KAboutLicense::MIT,
         i18n("Copyright 2026 GeorgeBin contributors"));
-    aboutData.setDesktopFileName(QStringLiteral("io.github.kiwigaze.intelli-light"));
+    aboutData.setDesktopFileName(QStringLiteral("io.github.georgebin.intelli-light"));
     aboutData.setHomepage(QStringLiteral("https://github.com/GeorgeBin/intelli-light"));
     KAboutData::setApplicationData(aboutData);
 

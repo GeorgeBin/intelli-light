@@ -55,10 +55,10 @@ target_link_libraries(desktop-tests PRIVATE
 add_test(NAME desktop-tests COMMAND desktop-tests)
 set_tests_properties(desktop-tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-configure_file(data/io.github.kiwigaze.intelli-light.desktop.in
-    io.github.kiwigaze.intelli-light.desktop @ONLY)
+configure_file(data/io.github.georgebin.intelli-light.desktop.in
+    io.github.georgebin.intelli-light.desktop @ONLY)
 install(TARGETS intelli-light-desktop ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/io.github.kiwigaze.intelli-light.desktop
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/io.github.georgebin.intelli-light.desktop
     DESTINATION ${KDE_INSTALL_APPDIR})
 install(FILES data/icons/intelli-light.svg
     DESTINATION ${KDE_INSTALL_ICONDIR}/hicolor/scalable/apps)
