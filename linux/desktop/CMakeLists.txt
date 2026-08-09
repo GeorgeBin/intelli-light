@@ -19,6 +19,10 @@ find_package(KF6 6.0 REQUIRED COMPONENTS CoreAddons I18n StatusNotifierItem)
 set(CMAKE_SKIP_INSTALL_RPATH TRUE)
 
 add_library(intelli-light-desktop-support STATIC
+    src/ColorEditWidget.cpp
+    src/ColorEditWidget.h
+    src/ColorUtils.cpp
+    src/ColorUtils.h
     src/DefaultSettings.h
     src/IpcClient.cpp
     src/IpcClient.h
@@ -26,7 +30,7 @@ add_library(intelli-light-desktop-support STATIC
     src/StatePresentation.h
 )
 target_link_libraries(intelli-light-desktop-support
-    PUBLIC Qt6::Core Qt6::Gui Qt6::Network
+    PUBLIC Qt6::Core Qt6::Gui Qt6::Network Qt6::Widgets
 )
 target_include_directories(intelli-light-desktop-support PUBLIC src)
 

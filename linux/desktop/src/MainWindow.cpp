@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 
+#include "ColorEditWidget.h"
 #include "DefaultSettings.h"
 
 #include "StatePresentation.h"
@@ -125,8 +126,7 @@ QGroupBox *MainWindow::createEffectEditor(const QString &title, EffectWidgets &w
 {
     auto *group = new QGroupBox(title, this);
     auto *layout = new QHBoxLayout(group);
-    widgets.color = new QLineEdit(group);
-    widgets.color->setMaximumWidth(100);
+    widgets.color = new ColorEditWidget(group);
     widgets.mode = new QComboBox(group);
     widgets.mode->addItem(tr("Solid"), 1);
     widgets.mode->addItem(tr("Blink"), 2);
@@ -296,6 +296,17 @@ void MainWindow::updateGeorgeLightConfig()
     if (updating_) {
         return;
     }
+    const EffectWidgets *editors[] = {&workingEffect_, &actionEffect_, &errorEffect_, &doneEffect_};
+    for (const EffectWidgets *widgets : editors) {
+        if (!widgets->color->isValid()) {
+            QMessageBox::warning(
+                this,
+                tr("Invalid Color"),
+                tr("\"%1\" is not a valid #RRGGBB color. Correct it before applying.")
+                    .arg(widgets->color->text()));
+            return;
+        }
+    }
     QJsonObject effects;
     effects.insert(QStringLiteral("working"), effectFromWidgets(workingEffect_));
     effects.insert(QStringLiteral("actionRequired"), effectFromWidgets(actionEffect_));
@@ -341,7 +352,7 @@ void MainWindow::quitDesktop()
 QJsonObject MainWindow::effectFromWidgets(const EffectWidgets &widgets) const
 {
     return {
-        {QStringLiteral("color"), widgets.color->text().trimmed()},
+        {QStringLiteral("color"), widgets.color->hex()},
         {QStringLiteral("modeId"), widgets.mode->currentData().toInt()},
         {QStringLiteral("durationSec"), widgets.duration->value()},
         {QStringLiteral("brightness"), widgets.brightness->value()},
@@ -350,7 +361,7 @@ QJsonObject MainWindow::effectFromWidgets(const EffectWidgets &widgets) const
 
 void MainWindow::setEffectWidgets(EffectWidgets &widgets, const QJsonObject &effect)
 {
-    widgets.color->setText(effect.value(QStringLiteral("color")).toString());
+    widgets.color->setHex(effect.value(QStringLiteral("color")).toString());
     const int modeIndex = widgets.mode->findData(effect.value(QStringLiteral("modeId")).toInt());
     if (modeIndex >= 0) {
         widgets.mode->setCurrentIndex(modeIndex);

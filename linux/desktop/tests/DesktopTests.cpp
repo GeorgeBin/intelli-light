@@ -1,3 +1,5 @@
+#include "ColorEditWidget.h"
+#include "ColorUtils.h"
 #include "DefaultSettings.h"
 #include "IpcClient.h"
 #include "StatePresentation.h"
@@ -16,6 +18,10 @@ private Q_SLOTS:
     void providerAndGeorgeLightCommandsSerialize();
     void ipcResponseSerialization();
     void georgeLightAddressDefaultsAndOverrides();
+    void hexValidationAndNormalization();
+    void colorConversionsRoundTrip();
+    void effectJsonKeepsStandardRgbHex();
+    void colorEditWidgetSyncsSwatchAndNormalizes();
 };
 
 void DesktopTests::waitingStatesRemainDistinct()
@@ -85,6 +91,81 @@ void DesktopTests::georgeLightAddressDefaultsAndOverrides()
     QCOMPARE(DefaultSettings::georgeLightAddress(
                  {{QStringLiteral("address"), QStringLiteral("http://light.example:8080")}}),
              QStringLiteral("http://light.example:8080"));
+}
+
+void DesktopTests::hexValidationAndNormalization()
+{
+    QVERIFY(ColorUtils::isValidHex(QStringLiteral("#4D8FFF")));
+    QVERIFY(ColorUtils::isValidHex(QStringLiteral("#4d8fff")));
+    QVERIFY(!ColorUtils::isValidHex(QStringLiteral("#4D8FF")));    // too short
+    QVERIFY(!ColorUtils::isValidHex(QStringLiteral("4D8FFF")));    // missing '#'
+    QVERIFY(!ColorUtils::isValidHex(QStringLiteral("#4D8FFG")));   // non-hex digit
+    QVERIFY(!ColorUtils::isValidHex(QStringLiteral("#4D8FFFF")));  // too long
+    QVERIFY(!ColorUtils::isValidHex(QStringLiteral("#4D8F")));     // too short
+    QVERIFY(!ColorUtils::isValidHex(QString()));
+
+    // Lowercase input is normalized to the uppercase #RRGGBB form saved to disk.
+    QCOMPARE(ColorUtils::normalizeHex(QStringLiteral("#4d8fff")), QStringLiteral("#4D8FFF"));
+    QCOMPARE(ColorUtils::normalizeHex(QStringLiteral("#4D8FFF")), QStringLiteral("#4D8FFF"));
+    QCOMPARE(ColorUtils::normalizeHex(QStringLiteral("#zzzzzz")), QString());
+    // The utility is strict about whitespace; the widget trims before calling it.
+    QCOMPARE(ColorUtils::normalizeHex(QStringLiteral("  #4D8FFF  ")), QString());
+}
+
+void DesktopTests::colorConversionsRoundTrip()
+{
+    // HEX -> QColor, which backs the swatch synchronization.
+    const QColor color = ColorUtils::colorFromHex(QStringLiteral("#4D8FFF"));
+    QVERIFY(color.isValid());
+    QCOMPARE(color.red(), 0x4D);
+    QCOMPARE(color.green(), 0x8F);
+    QCOMPARE(color.blue(), 0xFF);
+    QCOMPARE(ColorUtils::hexFromColor(color), QStringLiteral("#4D8FFF"));
+
+    // QColor -> HEX round-trips through lowercase input to standard uppercase.
+    QCOMPARE(ColorUtils::hexFromColor(ColorUtils::colorFromHex(QStringLiteral("#4d8fff"))),
+             QStringLiteral("#4D8FFF"));
+
+    // Invalid input yields an invalid QColor, which the swatch renders as invalid.
+    QVERIFY(!ColorUtils::colorFromHex(QStringLiteral("nope")).isValid());
+    QVERIFY(!ColorUtils::colorFromHex(QStringLiteral("#4D8FF")).isValid());
+    QCOMPARE(ColorUtils::hexFromColor(QColor{}), QString());
+}
+
+void DesktopTests::effectJsonKeepsStandardRgbHex()
+{
+    // The Desktop normalizes the raw line-edit text to #RRGGBB before the effect
+    // leaves the UI, so the daemon always receives the canonical form.
+    const QString raw = QStringLiteral("#4d8fff");
+    const QJsonObject effect{
+        {QStringLiteral("color"), ColorUtils::normalizeHex(raw)},
+        {QStringLiteral("modeId"), 3},
+        {QStringLiteral("durationSec"), 300},
+        {QStringLiteral("brightness"), 70},
+    };
+    const QJsonObject parsed =
+        QJsonDocument::fromJson(QJsonDocument(effect).toJson(QJsonDocument::Compact)).object();
+    QCOMPARE(parsed.value(QStringLiteral("color")).toString(), QStringLiteral("#4D8FFF"));
+    QCOMPARE(parsed.value(QStringLiteral("modeId")).toInt(), 3);
+    QCOMPARE(parsed.value(QStringLiteral("durationSec")).toInt(), 300);
+    QCOMPARE(parsed.value(QStringLiteral("brightness")).toInt(), 70);
+}
+
+void DesktopTests::colorEditWidgetSyncsSwatchAndNormalizes()
+{
+    ColorEditWidget editor;
+    QVERIFY(!editor.isValid());
+    QCOMPARE(editor.hex(), QString());
+
+    // A snapshot value lands on the widget, becomes valid, and is normalized.
+    editor.setHex(QStringLiteral("#4d8fff"));
+    QVERIFY(editor.isValid());
+    QCOMPARE(editor.hex(), QStringLiteral("#4D8FFF"));
+
+    // Invalid input never produces a value that could be sent to the daemon.
+    editor.setHex(QStringLiteral("#zzzzzz"));
+    QVERIFY(!editor.isValid());
+    QCOMPARE(editor.hex(), QString());
 }
 
 QTEST_MAIN(DesktopTests)

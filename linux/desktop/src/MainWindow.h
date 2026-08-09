@@ -15,6 +15,7 @@ class QLineEdit;
 class QPushButton;
 class QSpinBox;
 class QTimer;
+class ColorEditWidget;
 class KStatusNotifierItem;
 
 class MainWindow : public QMainWindow
@@ -29,7 +30,7 @@ protected:
 
 private:
     struct EffectWidgets {
-        QLineEdit *color = nullptr;
+        ColorEditWidget *color = nullptr;
         QComboBox *mode = nullptr;
         QSpinBox *duration = nullptr;
         QSpinBox *brightness = nullptr;
