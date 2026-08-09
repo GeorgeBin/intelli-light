@@ -5,10 +5,12 @@ use std::str::FromStr;
 
 pub mod config;
 pub mod daemon;
+pub mod doctor;
 pub mod george_light;
 pub mod hooks;
 pub mod ipc;
 pub mod state_store;
+pub mod user_lifecycle;
 
 pub const STALE_AFTER_SECONDS: f64 = 900.0;
 pub const UNRELIABLE_OWNER_SECONDS: f64 = 60.0;

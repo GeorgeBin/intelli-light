@@ -1,0 +1,12 @@
+Package: intelli-light
+Version: @VERSION@
+Section: utils
+Priority: optional
+Architecture: @ARCH@
+Maintainer: GeorgeBin contributors <noreply@github.com>
+Depends: libc6 (>= 2.38), libgcc-s1, libstdc++6 (>= 14), libqt6core6t64 (>= 6.8.2), libqt6gui6 (>= 6.8.2), libqt6network6 (>= 6.8.2), libqt6widgets6 (>= 6.8.2), libkf6coreaddons6 (>= 6.13.0), libkf6i18n6 (>= 6.13.0), libkf6statusnotifieritem6 (>= 6.13.0), nodejs, systemd
+Installed-Size: @INSTALLED_SIZE@
+Homepage: https://github.com/GeorgeBin/intelli-light
+Description: Native KDE agent status and GeorgeLight controller
+ Intelli Light monitors Codex and Claude Code sessions with a contract-driven
+ Rust daemon and exposes a native Qt 6/KDE Frameworks 6 desktop and tray UI.

@@ -4,7 +4,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/intelli-light-linux daemon
+ExecStart=/usr/bin/intelli-light-linux daemon
 Restart=on-failure
 RestartSec=2
 

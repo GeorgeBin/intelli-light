@@ -1,6 +1,8 @@
 build/
 linux/target/
 linux/desktop/build*/
+linux/build/
+linux/dist/
 *.dmg
 .DS_Store
 node_modules/

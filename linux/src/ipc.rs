@@ -242,6 +242,20 @@ pub fn socket_path() -> PathBuf {
     }
 }
 
+pub fn request(request: &IpcRequest) -> Result<Value, String> {
+    let mut stream = UnixStream::connect(socket_path()).map_err(|error| error.to_string())?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .map_err(|error| error.to_string())?;
+    serde_json::to_writer(&mut stream, request).map_err(|error| error.to_string())?;
+    stream.write_all(b"\n").map_err(|error| error.to_string())?;
+    let mut line = String::new();
+    BufReader::new(stream)
+        .read_line(&mut line)
+        .map_err(|error| error.to_string())?;
+    serde_json::from_str(&line).map_err(|error| error.to_string())
+}
+
 fn update_config(home: &Path, config: &mut Config, updated: Config) -> Result<(), String> {
     updated.validate()?;
     updated.save(&config_path(home))?;

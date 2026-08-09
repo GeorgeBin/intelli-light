@@ -1,6 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Intelli Light
+GenericName=Agent Status Monitor
 Comment=Native KDE desktop for agent status and GeorgeLight configuration
 Exec=intelli-light-desktop
 Icon=intelli-light

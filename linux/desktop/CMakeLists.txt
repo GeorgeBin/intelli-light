@@ -12,9 +12,11 @@ list(APPEND CMAKE_MODULE_PATH ${ECM_MODULE_PATH})
 include(KDEInstallDirs6)
 include(KDECMakeSettings)
 include(KDECompilerSettings NO_POLICY_SCOPE)
+set(CMAKE_INSTALL_RPATH "")
 
 find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Network Test Widgets)
 find_package(KF6 6.0 REQUIRED COMPONENTS CoreAddons I18n StatusNotifierItem)
+set(CMAKE_SKIP_INSTALL_RPATH TRUE)
 
 add_library(intelli-light-desktop-support STATIC
     src/IpcClient.cpp
@@ -40,6 +42,7 @@ target_link_libraries(intelli-light-desktop PRIVATE
     KF6::I18n
     KF6::StatusNotifierItem
 )
+set_property(TARGET intelli-light-desktop PROPERTY INSTALL_RPATH "")
 
 enable_testing()
 add_executable(desktop-tests tests/DesktopTests.cpp)

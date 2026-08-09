@@ -1,6 +1,7 @@
 use intelli_light_linux::config::{config_path, Config};
 use intelli_light_linux::george_light::{GeorgeLightOutput, HttpTransport, TcpHttpTransport};
 use intelli_light_linux::state_store;
+use intelli_light_linux::user_lifecycle::{self, SystemdUser};
 use intelli_light_linux::{arbitrate, hooks, LinuxPidLiveness};
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -26,6 +27,19 @@ fn dispatch(arguments: &[String]) -> Result<(), String> {
         [command] if command == "status" => status(&home, &Config::load(&path)?),
         [command] if command == "daemon" => {
             intelli_light_linux::daemon::run(&home, Config::load(&path)?)
+        }
+        [command] if command == "setup-user" => {
+            print_changes(user_lifecycle::setup(&home, &mut SystemdUser)?);
+            Ok(())
+        }
+        [command] if command == "doctor" => intelli_light_linux::doctor::run(&home),
+        [command] if command == "uninstall-user" => {
+            print_changes(user_lifecycle::uninstall(&home, false, &mut SystemdUser)?);
+            Ok(())
+        }
+        [command, flag] if command == "uninstall-user" && flag == "--remove-config" => {
+            print_changes(user_lifecycle::uninstall(&home, true, &mut SystemdUser)?);
+            Ok(())
         }
         [group, action] if group == "hooks" && action == "install" => {
             let config = Config::load(&path)?;
@@ -154,6 +168,9 @@ fn usage() -> String {
         "Usage:",
         "  intelli-light-linux status",
         "  intelli-light-linux daemon",
+        "  intelli-light-linux setup-user",
+        "  intelli-light-linux doctor",
+        "  intelli-light-linux uninstall-user [--remove-config]",
         "  intelli-light-linux hooks install|uninstall|sync",
         "  intelli-light-linux config show",
         "  intelli-light-linux config set <key> <value>",
