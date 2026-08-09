@@ -1,6 +1,6 @@
 # Codex Status Bar
 
-A tiny macOS menu bar app that shows the **Codex CLI's live status**: an animated spinner while it is thinking or running a tool, an amber dot when it is awaiting your approval, and the elapsed time of the current turn. It sits next to your battery and clock and stays out of the way — no window, no dock icon, no usage dashboards.
+A tiny macOS menu bar app that shows the **Codex CLI's live status**: an animated spinner while it is thinking or running a tool, an amber dot when it needs your approval or is waiting for you to implement a completed plan, and the elapsed time of the current turn. It sits next to your battery and clock and stays out of the way — no window, no dock icon, no usage dashboards.
 
 > Built so you can tab away during a long "thinking" stretch and still see, at a glance, whether Codex is working, waiting on you, or done.
 
@@ -13,6 +13,7 @@ A tiny macOS menu bar app that shows the **Codex CLI's live status**: an animate
 - **Thinking / running a tool** — an animated spinner, with a live `1m 1s` timer.
 - **Tool labels** — a short label for the current action (`Editing`, `Reading`, `Running command`, `Using tool`, …).
 - **Awaiting approval** — an amber dot when Codex fires a `PermissionRequest`.
+- **Awaiting implementation** — a persistent amber dot after Plan Mode produces a completed `<proposed_plan>` and waits for your next prompt.
 - **Idle / done** — the spinner rests when there is nothing to do.
 
 Icon color can be **Accent** (`#4D8FFF`) or **System** (adaptive black/white, like your other menu bar icons). The elapsed timer can be toggled off. Both choices are saved in preferences.
@@ -76,7 +77,9 @@ The repository ships a Codex plugin manifest under `.codex-plugin/`. Install it 
 
 The hook scripts run locally and make **no network requests**. On each Codex event they read
 `session_id`, the current working directory (only its basename, shown as the project name),
-`tool_name`, and `transcript_path`, and they write status files under `~/.codex/statusbar/`
+`tool_name`, `transcript_path`, and the Stop event's `last_assistant_message`. When that Stop
+field is unavailable, the hook reads at most the final 1 MiB of the local transcript to verify
+that the latest Plan turn ended with a complete `<proposed_plan>`. They write status files under `~/.codex/statusbar/`
 (`states.d/`, `sessions.d/`). Setting `CODEX_STATUSBAR_DEBUG=1` additionally appends tool
 names and payload keys to `~/.codex/statusbar/hooks.log`. The app itself also appends turn-timeout
 records to `~/.codex/statusbar/app.log`. Nothing leaves your machine.
@@ -87,7 +90,11 @@ To remove everything: run the uninstaller (below) and delete `~/.codex/statusbar
 
 Codex fires hooks on its lifecycle events. Small Node scripts write the current status to per-session files under `~/.codex/statusbar/states.d/`; the menu bar app polls them and renders the spinner, label, and timer.
 
-The `SessionStart` hook launches the app. Codex has no `SessionEnd` event, so the app decides for itself when to leave: it **stays while a `codex` process is running** — a CLI session, `codex exec`, or the app-server that backs the desktop app and the VS Code extension — and **rests quietly (just the icon) when idle**. It quits a few seconds after Codex fully closes (no `codex` process and no recently-active session). So if you keep the Codex desktop app open, the indicator stays too (resting when idle); on a CLI-only machine it comes and goes with your `codex` sessions.
+The `SessionStart` hook launches the app, and `SessionEnd` clears the completed session. The app decides for itself when to leave: it **stays while a `codex` process is running** — a CLI session, `codex exec`, or the app-server that backs the desktop app and the VS Code extension — and **rests quietly (just the icon) when idle**. It quits a few seconds after Codex fully closes (no `codex` process and no recently-active session). So if you keep the Codex desktop app open, the indicator stays too (resting when idle); on a CLI-only machine it comes and goes with your `codex` sessions.
+
+The `SessionEnd` hook removes the matching session and state files immediately. Owner-process
+liveness is the fallback for abnormal exits, and action-required states remain visible past the
+normal 15-minute freshness window while that owner is alive.
 
 The installer merges its hooks into `~/.codex/hooks.json` without touching your other hooks, and backs the file up first (`~/.codex/hooks.json.bak-statusbar`).
 
@@ -122,9 +129,10 @@ swiftc Tests/light_output_tests.swift Sources/LightOutput.swift Sources/GeorgeLi
 
 GeorgeLight output is enabled by default and uses `http://george-light-zero.local`.
 Use `Enable GeorgeLight` to enable or disable output, `Address...` to change the device
-address immediately, and the Working, Waiting Approval, and Done submenus to select a
+address immediately, and the Working, Action Required, Error, and Done submenus to select a
 firmware preset color and built-in LED mode. The settings are stored under the existing
-app domain and can also be managed from Terminal:
+app domain; Action Required reuses the existing Waiting Approval preference keys so upgrades
+preserve prior color and mode choices. Settings can also be managed from Terminal:
 
 ```bash
 defaults write io.github.kiwigaze.codexstatusbar georgeLightEnabled -bool true

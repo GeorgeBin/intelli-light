@@ -4,6 +4,15 @@ All notable changes to Codex Status Bar are documented here. The format is based
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Completed Codex Plan Mode turns now enter a persistent `Waiting Implementation` state until the user submits the implementation prompt or the session ends.
+
+### Changed
+- Waiting Approval and Waiting Implementation share a GeorgeLight `Action Required` effect while retaining their specific agent status labels; existing Waiting Approval preferences remain compatible.
+- Action-required states remain visible beyond the normal stale timeout while their owner process is alive, and Codex `SessionEnd` now removes the matching state immediately.
+
 ## [0.2.4] - 2026-06-28
 
 ### Fixed

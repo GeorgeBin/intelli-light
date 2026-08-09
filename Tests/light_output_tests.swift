@@ -83,6 +83,7 @@ struct LightOutputTests {
         testLatestStateWaitsForOlderRequest()
         testFailureDoesNotBlockLaterClear()
         testWorkingLeaseRefreshes()
+        testActionRequiredLeaseRefreshes()
         testErrorPayloadDoesNotLeaseRefresh()
         testNetworkFailureRetries()
         testHTTP409Retries()
@@ -120,8 +121,13 @@ struct LightOutputTests {
         defaults.set("#00ff00", forKey: GeorgeLightConfiguration.colorDefaultsKey(for: .working))
         defaults.set(GeorgeLightMode.blink.rawValue,
                      forKey: GeorgeLightConfiguration.modeDefaultsKey(for: .working))
-        defaults.set("#123456", forKey: GeorgeLightConfiguration.colorDefaultsKey(for: .waitingApproval))
-        defaults.set(99, forKey: GeorgeLightConfiguration.modeDefaultsKey(for: .waitingApproval))
+        eq(LightState.actionRequired.settingsTitle, "Action Required", "settings menu uses action-required title")
+        eq(GeorgeLightConfiguration.colorDefaultsKey(for: .actionRequired),
+           "georgeLightWaitingApprovalColor", "action-required color keeps legacy key")
+        eq(GeorgeLightConfiguration.modeDefaultsKey(for: .actionRequired),
+           "georgeLightWaitingApprovalModeID", "action-required mode keeps legacy key")
+        defaults.set("#123456", forKey: GeorgeLightConfiguration.colorDefaultsKey(for: .actionRequired))
+        defaults.set(99, forKey: GeorgeLightConfiguration.modeDefaultsKey(for: .actionRequired))
         defaults.set("http://192.168.1.45", forKey: GeorgeLightConfiguration.baseURLDefaultsKey)
         var restored = GeorgeLightConfiguration(userDefaults: defaults)
         eq(restored.baseURL.absoluteString,
@@ -130,10 +136,16 @@ struct LightOutputTests {
         eq(restored.effects.working.mode, .blink, "built-in mode restores")
         eq(restored.effects.working.brightness, 70, "working brightness remains fixed")
         eq(restored.effects.working.durationSeconds, 300, "working duration remains fixed")
-        eq(restored.effects.waitingApproval.color, "#F2BA2E", "invalid color falls back")
-        eq(restored.effects.waitingApproval.mode, .fastBlink, "invalid mode falls back")
+        eq(restored.effects.actionRequired.color, "#F2BA2E", "invalid color falls back")
+        eq(restored.effects.actionRequired.mode, .fastBlink, "invalid mode falls back")
         eq(restored.effects.error.color, "#FF0000", "error defaults to firmware red")
         eq(restored.effects.error.mode, .fastBlink, "error defaults to fast blink")
+
+        defaults.set("#0000FF", forKey: "georgeLightWaitingApprovalColor")
+        defaults.set(GeorgeLightMode.solid.rawValue, forKey: "georgeLightWaitingApprovalModeID")
+        restored = GeorgeLightConfiguration(userDefaults: defaults)
+        eq(restored.effects.actionRequired.color, "#0000FF", "legacy approval color restores")
+        eq(restored.effects.actionRequired.mode, .solid, "legacy approval mode restores")
 
         var error = restored.effects.error
         error.color = "#8000FF"
@@ -210,7 +222,7 @@ struct LightOutputTests {
         let output = GeorgeLightHttpOutput(baseURL: URL(string: "http://lamp.local")!, session: makeSession())
         output.setLightState(.working)
         wait(firstStarted, "first request did not start")
-        output.setLightState(.waitingApproval)
+        output.setLightState(.actionRequired)
         output.setLightState(.done)
         Thread.sleep(forTimeInterval: 0.15)
         lock.lock(); let beforeCompletion = count; let first = held; lock.unlock()
@@ -244,7 +256,7 @@ struct LightOutputTests {
         }
 
         let output = GeorgeLightHttpOutput(baseURL: URL(string: "http://lamp.local")!, session: makeSession())
-        output.setLightState(.waitingApproval)
+        output.setLightState(.actionRequired)
         wait(failed, "failed request did not complete")
         output.setLightState(.idle)
         wait(cleared, "network failure blocked later clear")
@@ -280,6 +292,31 @@ struct LightOutputTests {
               "lease refresh uses display endpoint")
         check(captured.allSatisfy { payload($0)["color"] as? String == "#4D8FFF" },
               "lease refresh preserves working state")
+    }
+
+    static func testActionRequiredLeaseRefreshes() {
+        let initial = DispatchSemaphore(value: 0)
+        let refreshed = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var requests: [URLRequest] = []
+        setHandler { proto, request in
+            lock.lock(); requests.append(request); let count = requests.count; lock.unlock()
+            proto.succeed()
+            if count == 1 { initial.signal() }
+            if count == 2 { refreshed.signal() }
+        }
+
+        let output = GeorgeLightHttpOutput(
+            baseURL: URL(string: "http://lamp.local")!, session: makeSession(),
+            leaseRefreshInterval: 0.05, retryDelays: [0.02])
+        output.setLightState(.actionRequired)
+        wait(initial, "initial action-required lease was not sent")
+        wait(refreshed, "action-required lease was not refreshed")
+
+        lock.lock(); let captured = Array(requests.prefix(2)); lock.unlock()
+        eq(captured.count, 2, "action required sends a lease refresh")
+        check(captured.allSatisfy { payload($0)["color"] as? String == "#F2BA2E" },
+              "action-required refresh preserves shared effect")
     }
 
     static func testErrorPayloadDoesNotLeaseRefresh() {
@@ -341,7 +378,7 @@ struct LightOutputTests {
         let output = GeorgeLightHttpOutput(
             baseURL: URL(string: "http://lamp.local")!, session: makeSession(),
             leaseRefreshInterval: 10, retryDelays: [0.02])
-        output.setLightState(.waitingApproval)
+        output.setLightState(.actionRequired)
         wait(retried, "HTTP 409 was not retried")
         lock.lock(); let total = count; lock.unlock()
         eq(total, 2, "non-2xx response retries before success")
@@ -391,7 +428,7 @@ struct LightOutputTests {
         output.setLightState(.working)
         wait(firstFailed, "initial working request did not fail")
         Thread.sleep(forTimeInterval: 0.05)
-        output.setLightState(.waitingApproval)
+        output.setLightState(.actionRequired)
         wait(latestSent, "latest state was not sent during retry wait")
         Thread.sleep(forTimeInterval: 0.25)
 
@@ -444,7 +481,7 @@ struct LightOutputTests {
             baseURL: URL(string: "http://lamp.local")!, enabled: false,
             session: makeSession(), leaseRefreshInterval: 10, retryDelays: [0.02])
         output.setLightState(.working)
-        output.setLightState(.waitingApproval)
+        output.setLightState(.actionRequired)
         Thread.sleep(forTimeInterval: 0.1)
         lock.lock(); let disabledCount = requests.count; lock.unlock()
         eq(disabledCount, 0, "disabled output sends no state requests")
@@ -563,14 +600,14 @@ struct LightOutputTests {
         }
 
         var effects = GeorgeLightEffectConfiguration.defaults
-        var approval = effects.waitingApproval
+        var approval = effects.actionRequired
         approval.color = "#8000FF"
         approval.mode = .solid
-        effects.setEffect(approval, for: .waitingApproval)
+        effects.setEffect(approval, for: .actionRequired)
         let output = GeorgeLightHttpOutput(
             baseURL: URL(string: "http://lamp.local")!, enabled: true, effects: effects,
             session: makeSession(), leaseRefreshInterval: 10, retryDelays: [0.02])
-        output.setLightState(.waitingApproval)
+        output.setLightState(.actionRequired)
         wait(sent, "configured effect was not sent")
 
         lock.lock(); let captured = request; lock.unlock()

@@ -66,8 +66,9 @@ test("install merges our hooks and quotes interpolated paths (M6)", () => {
   assert.equal(r.status, 0, r.stderr);
   const hooks = readHooks(h.home);
   assert.ok(hooks.hooks.SessionStart?.length, "SessionStart hook added");
+  assert.ok(hooks.hooks.SessionEnd?.length, "Codex SessionEnd hook added");
   const cmds = ourCommands(hooks);
-  assert.ok(cmds.length >= 6, "all status-bar hooks present");
+  assert.ok(cmds.length >= 7, "all status-bar hooks present");
   for (const c of cmds) {
     const quoted = c.match(/"/g) || [];
     assert.ok(quoted.length >= 4, `command must quote node + script path: ${c}`);

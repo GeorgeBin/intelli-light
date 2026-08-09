@@ -100,6 +100,7 @@ function reconcileCodex(enabled) {
   const { object, backedUp } = readConfiguration(configPath);
   const command = (script, event) => `"${node}" "${path.join(statusDir, script)}" ${event}`;
   addHook(object, statusDir, "SessionStart", command("lifecycle.js", "start"));
+  addHook(object, statusDir, "SessionEnd", command("lifecycle.js", "end"));
   addHook(object, statusDir, "UserPromptSubmit", command("update.js", "prompt"));
   addHook(object, statusDir, "PreToolUse", command("update.js", "pre"), "*");
   addHook(object, statusDir, "PostToolUse", command("update.js", "post"), "*");

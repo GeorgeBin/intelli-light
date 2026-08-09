@@ -168,7 +168,7 @@ final class GeorgeLightHttpOutput: ConfigurableLightOutput {
     }
 
     private func needsLeaseRefresh(_ state: LightState) -> Bool {
-        state == .working || state == .waitingApproval
+        state == .working || state == .actionRequired
     }
 
     private func makeRequest(for state: LightState, baseURL: URL) -> URLRequest? {

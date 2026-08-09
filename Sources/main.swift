@@ -185,7 +185,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         addressItem.target = self
         menu.addItem(addressItem)
 
-        for state in [LightState.working, .waitingApproval, .error, .done] {
+        for state in [LightState.working, .actionRequired, .error, .done] {
             menu.addItem(georgeLightEffectMenuItem(for: state))
         }
 
@@ -518,7 +518,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         let globalLightState: LightState
         switch globalState {
         case .working: globalLightState = .working
-        case .waitingApproval: globalLightState = .waitingApproval
+        case .waitingApproval, .waitingImplementation: globalLightState = .actionRequired
         case .error: globalLightState = .error
         case .done: globalLightState = .done
         case .idle: globalLightState = .idle
@@ -548,6 +548,9 @@ final class StatusController: NSObject, NSMenuDelegate {
             render(label: "Awaiting permission", color: amber, animate: false,
                    startedAt: chosen.startedAt, pausedTotal: chosen.pausedTotal,
                    pauseStart: chosen.pauseStart, dot: true)
+        case .waitingImplementation:
+            render(label: "Awaiting implementation", color: amber, animate: false,
+                   startedAt: 0, pausedTotal: 0, pauseStart: 0, dot: true)
         case .error:
             renderTerminal(chosen: chosen, now: now, label: "Error", color: errorRed, doneIcon: false)
         case .done:

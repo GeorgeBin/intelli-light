@@ -46,7 +46,8 @@ enum AgentState: Int, Equatable, Comparable {
     case done = 1
     case working = 2
     case error = 3
-    case waitingApproval = 4
+    case waitingImplementation = 4
+    case waitingApproval = 5
 
     static func < (lhs: AgentState, rhs: AgentState) -> Bool {
         lhs.rawValue < rhs.rawValue
@@ -56,10 +57,15 @@ enum AgentState: Int, Equatable, Comparable {
         switch self {
         case .working: return "Working"
         case .waitingApproval: return "Waiting Approval"
+        case .waitingImplementation: return "Waiting Implementation"
         case .error: return "Error"
         case .done: return "Done"
         case .idle: return "Idle"
         }
+    }
+
+    var requiresUserAction: Bool {
+        self == .waitingApproval || self == .waitingImplementation
     }
 }
 
@@ -87,7 +93,7 @@ struct AgentSessionKey: Hashable, Codable {
 // would otherwise launch the GUI via `app.run()`).
 
 struct SessionState {
-    var state: String       // thinking | tool | permission | done | idle
+    var state: String       // thinking | tool | permission | waitingImplementation | done | idle
     var label: String
     var tool: String
     var project: String
@@ -132,6 +138,7 @@ extension SessionState {
         switch state {
         case "thinking", "tool", "working": return .working
         case "permission", "waitingApproval": return .waitingApproval
+        case "waitingImplementation": return .waitingImplementation
         case "error": return .error
         case "done": return .done
         default: return .idle
@@ -139,7 +146,10 @@ extension SessionState {
     }
 
     func isAlive(now: TimeInterval) -> Bool {
-        now - ts <= SessionState.staleAfter
+        // Action-required states are bounded by owner liveness instead of file age.
+        // isDisplayEligible performs the actual process check before rendering them.
+        if normalizedState.requiresUserAction && ownerPid > 0 { return true }
+        return now - ts <= SessionState.staleAfter
     }
 
     func hasReliableOwner() -> Bool {
@@ -149,7 +159,10 @@ extension SessionState {
     func isDisplayEligible(now: TimeInterval, ownerAlive: Bool) -> Bool {
         guard isAlive(now: now) else { return false }
         switch normalizedState {
-        case .working, .waitingApproval:
+        case .waitingApproval, .waitingImplementation:
+            if ownerPid > 0 { return ownerAlive }
+            return now - ts <= SessionState.unreliableOwnerDisplayAfter
+        case .working:
             if hasReliableOwner() { return ownerAlive }
             return now - ts <= SessionState.unreliableOwnerDisplayAfter
         default:
@@ -163,9 +176,10 @@ extension SessionState {
     }
 
     func endedByOwnerExit(ownerAlive: Bool) -> Bool {
+        if normalizedState.requiresUserAction && ownerPid > 0 { return !ownerAlive }
         guard hasReliableOwner() else { return false }
         switch normalizedState {
-        case .working, .waitingApproval: return !ownerAlive
+        case .working: return !ownerAlive
         default: return false
         }
     }

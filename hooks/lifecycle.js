@@ -7,7 +7,7 @@
 // stdin) under sessions.d/. This is race-free: distinct files don't drift under
 // concurrency the way a shared counter would. The app counts the files to know a
 // session is alive when there's no other process to watch.
-// Usage: node lifecycle.js start   (hook JSON, incl. session_id, arrives on stdin)
+// Usage: node lifecycle.js <start|end> (hook JSON, incl. session_id, arrives on stdin)
 
 const fs = require("fs");
 const os = require("os");
@@ -66,6 +66,9 @@ function run() {
     }
     try { writePrivateFile(path.join(sessDir, id), ""); } catch {}
     if (!testMode) cp.spawn("open", ["-g", "-b", BUNDLE_ID], { stdio: "ignore", detached: true }).unref();
+  } else if (event === "end") {
+    try { fs.rmSync(path.join(sessDir, id), { force: true }); } catch {}
+    try { fs.rmSync(path.join(statesDir, id), { force: true }); } catch {}
   }
   process.exit(0);
 }

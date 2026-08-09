@@ -20,10 +20,58 @@ const TOOL_LABELS = {
   read: "Reading", view_image: "Viewing", update_plan: "Planning",
   spawn_agent: "Delegating", web_search: "Searching web",
 };
+const TRANSCRIPT_TAIL_BYTES = 1024 * 1024;
 const truncate = (s, n) => (s.length <= n ? s : s.slice(0, n));
 // Reject the bare "."/".." segments so a crafted session_id can't escape states.d via
 // path.join normalization; the raw id is still stored verbatim in the JSON content.
 const safeId = (s) => { const c = String(s || "").replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 64); return (!c || c === "." || c === "..") ? "unknown" : c; };
+
+function hasCompleteProposedPlan(value) {
+  return /<proposed_plan>[\s\S]*<\/proposed_plan>/.test(String(value || ""));
+}
+
+function transcriptEndsWithPlan(transcriptPath) {
+  if (!transcriptPath || typeof transcriptPath !== "string") return false;
+  let fd;
+  try {
+    fd = fs.openSync(transcriptPath, "r");
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.size <= 0) return false;
+    const start = Math.max(0, stat.size - TRANSCRIPT_TAIL_BYTES);
+    const buffer = Buffer.alloc(stat.size - start);
+    fs.readSync(fd, buffer, 0, buffer.length, start);
+    let text = buffer.toString("utf8");
+    if (start > 0) text = text.slice(text.indexOf("\n") + 1);
+
+    let currentMode = null;
+    let lastAssistant = null;
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      let item;
+      try { item = JSON.parse(line); } catch { continue; }
+      const payload = item && item.payload;
+      if (item.type === "event_msg" && payload?.type === "task_started") {
+        currentMode = payload.collaboration_mode_kind || null;
+      }
+      if (item.type === "response_item" && payload?.type === "message" && payload.role === "assistant") {
+        const message = Array.isArray(payload.content)
+          ? payload.content.map((part) => part?.text || "").join("\n") : "";
+        lastAssistant = { message, mode: currentMode, phase: payload.phase || "" };
+      }
+    }
+    return lastAssistant?.mode === "plan" && lastAssistant.phase === "final_answer"
+      && hasCompleteProposedPlan(lastAssistant.message);
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
+  }
+}
+
+function stopCompletedPlan(payload) {
+  if (hasCompleteProposedPlan(payload.last_assistant_message)) return true;
+  return transcriptEndsWithPlan(payload.transcript_path);
+}
 
 function classifyOwnerKind(args) {
   return /(^|\s)app-server(\s|$)/.test(args) ? "global" : "session";
@@ -107,7 +155,11 @@ process.stdin.on("end", () => {
       if (!pauseStart) pauseStart = ts;   // don't overwrite an existing pause window
       break;
     case "stop":
-      state = "done"; label = "Done";
+      if (stopCompletedPlan(p)) {
+        state = "waitingImplementation"; label = "Awaiting implementation";
+      } else {
+        state = "done"; label = "Done";
+      }
       if (pauseStart > 0) { pausedTotal += (ts - pauseStart); }   // close any open pause first
       startedAt = 0; pauseStart = 0;
       break;

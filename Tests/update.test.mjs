@@ -26,6 +26,12 @@ function readState(home, sessionId) {
   return JSON.parse(fs.readFileSync(p, "utf8"));
 }
 
+function writeTranscript(home, name, records) {
+  const transcript = path.join(home, `${name}.jsonl`);
+  fs.writeFileSync(transcript, records.map((record) => JSON.stringify(record)).join("\n") + "\n");
+  return transcript;
+}
+
 function writeFakePs(home, output) {
   const bin = path.join(home, "bin");
   fs.mkdirSync(bin, { recursive: true });
@@ -170,6 +176,63 @@ test("stop writes done with startedAt cleared", () => {
   assert.equal(s.pauseStart, 0);
 });
 
+test("plan Stop payload enters waitingImplementation and next prompt resumes Working", () => {
+  using h = withTempHome();
+  runHook(h.home, "prompt", { session_id: "plan-direct", cwd: "/p" });
+  runHook(h.home, "stop", {
+    session_id: "plan-direct",
+    last_assistant_message: "<proposed_plan>\nImplement safely\n</proposed_plan>",
+  });
+  let state = readState(h.home, "plan-direct");
+  assert.equal(state.state, "waitingImplementation");
+  assert.equal(state.label, "Awaiting implementation");
+  assert.equal(state.startedAt, 0);
+  assert.equal(state.pauseStart, 0);
+
+  runHook(h.home, "prompt", { session_id: "plan-direct", cwd: "/p" });
+  state = readState(h.home, "plan-direct");
+  assert.equal(state.state, "thinking");
+  assert.equal(state.label, "Thinking…");
+  assert.ok(state.startedAt > 0);
+});
+
+test("plan Stop falls back to the final Plan transcript turn", () => {
+  using h = withTempHome();
+  const transcript = writeTranscript(h.home, "plan", [
+    { type: "event_msg", payload: { type: "task_started", collaboration_mode_kind: "plan" } },
+    { type: "response_item", payload: {
+      type: "message", role: "assistant", phase: "final_answer",
+      content: [{ type: "output_text", text: "<proposed_plan>\nPlan body\n</proposed_plan>" }],
+    } },
+  ]);
+  runHook(h.home, "stop", { session_id: "plan-transcript", transcript_path: transcript });
+  assert.equal(readState(h.home, "plan-transcript").state, "waitingImplementation");
+});
+
+test("Stop does not mistake an older plan or a normal quoted tag for the final Plan", () => {
+  using h = withTempHome();
+  const transcript = writeTranscript(h.home, "ordinary", [
+    { type: "event_msg", payload: { type: "task_started", collaboration_mode_kind: "plan" } },
+    { type: "response_item", payload: {
+      type: "message", role: "assistant", phase: "final_answer",
+      content: [{ type: "output_text", text: "<proposed_plan>old</proposed_plan>" }],
+    } },
+    { type: "event_msg", payload: { type: "task_started", collaboration_mode_kind: "default" } },
+    { type: "response_item", payload: {
+      type: "message", role: "assistant", phase: "final_answer",
+      content: [{ type: "output_text", text: "Ordinary answer" }],
+    } },
+  ]);
+  runHook(h.home, "stop", { session_id: "ordinary", transcript_path: transcript });
+  assert.equal(readState(h.home, "ordinary").state, "done");
+
+  runHook(h.home, "stop", {
+    session_id: "quoted",
+    last_assistant_message: "The opening tag is <proposed_plan>, but this is not a complete block.",
+  });
+  assert.equal(readState(h.home, "quoted").state, "done");
+});
+
 test("post without a preceding permission leaves pausedTotal at 0", () => {
   using h = withTempHome();
   runHook(h.home, "prompt", { session_id: "s1", cwd: "/p" });
@@ -203,6 +266,31 @@ test("lifecycle start purges states.d files older than 1h when app not running",
   assert.equal(r.status, 0, r.stderr);
   assert.ok(!fs.existsSync(stale), "stale state file should be removed");
   assert.ok(fs.existsSync(fresh), "fresh state file should be kept");
+});
+
+test("lifecycle end removes only the matching Codex session and state", () => {
+  using h = withTempHome();
+  const life = path.join(REPO, "hooks", "lifecycle.js");
+  for (const id of ["one", "two"]) {
+    const started = spawnSync(process.execPath, [life, "start"], {
+      input: JSON.stringify({ session_id: id }),
+      env: { ...process.env, HOME: h.home, CODEX_STATUSBAR_TEST: "1" },
+      encoding: "utf8",
+    });
+    assert.equal(started.status, 0, started.stderr);
+    runHook(h.home, "prompt", { session_id: id, cwd: `/p/${id}` });
+  }
+
+  const ended = spawnSync(process.execPath, [life, "end"], {
+    input: JSON.stringify({ session_id: "one" }),
+    env: { ...process.env, HOME: h.home, CODEX_STATUSBAR_TEST: "1" },
+    encoding: "utf8",
+  });
+  assert.equal(ended.status, 0, ended.stderr);
+  assert.ok(!fs.existsSync(path.join(h.home, ".codex", "statusbar", "sessions.d", "one")));
+  assert.ok(!fs.existsSync(path.join(h.home, ".codex", "statusbar", "states.d", "one")));
+  assert.ok(fs.existsSync(path.join(h.home, ".codex", "statusbar", "sessions.d", "two")));
+  assert.ok(fs.existsSync(path.join(h.home, ".codex", "statusbar", "states.d", "two")));
 });
 
 test("path-traversal session_id (\"..\" / \".\") is sanitized to a safe filename", () => {

@@ -2,7 +2,7 @@ import Foundation
 
 enum LightState: Equatable {
     case working
-    case waitingApproval
+    case actionRequired
     case error
     case done
     case idle
@@ -10,7 +10,7 @@ enum LightState: Equatable {
     init(codexState: String?) {
         switch codexState {
         case "thinking", "tool": self = .working
-        case "permission": self = .waitingApproval
+        case "permission", "waitingApproval", "waitingImplementation": self = .actionRequired
         case "error": self = .error
         case "done": self = .done
         default: self = .idle
@@ -20,7 +20,7 @@ enum LightState: Equatable {
     var settingsTitle: String {
         switch self {
         case .working: return "Working"
-        case .waitingApproval: return "Waiting Approval"
+        case .actionRequired: return "Action Required"
         case .error: return "Error"
         case .done: return "Done"
         case .idle: return "Idle"
@@ -90,14 +90,14 @@ struct GeorgeLightEffectSettings: Equatable {
 
 struct GeorgeLightEffectConfiguration: Equatable {
     var working: GeorgeLightEffectSettings
-    var waitingApproval: GeorgeLightEffectSettings
+    var actionRequired: GeorgeLightEffectSettings
     var error: GeorgeLightEffectSettings
     var done: GeorgeLightEffectSettings
 
     static let defaults = GeorgeLightEffectConfiguration(
         working: GeorgeLightEffectSettings(
             color: "#4D8FFF", mode: .breath, durationSeconds: 300, brightness: 70),
-        waitingApproval: GeorgeLightEffectSettings(
+        actionRequired: GeorgeLightEffectSettings(
             color: "#F2BA2E", mode: .fastBlink, durationSeconds: 300, brightness: 90),
         error: GeorgeLightEffectSettings(
             color: "#FF0000", mode: .fastBlink, durationSeconds: 10, brightness: 90),
@@ -107,7 +107,7 @@ struct GeorgeLightEffectConfiguration: Equatable {
     func effect(for state: LightState) -> GeorgeLightEffectSettings? {
         switch state {
         case .working: return working
-        case .waitingApproval: return waitingApproval
+        case .actionRequired: return actionRequired
         case .error: return error
         case .done: return done
         case .idle: return nil
@@ -117,7 +117,7 @@ struct GeorgeLightEffectConfiguration: Equatable {
     mutating func setEffect(_ effect: GeorgeLightEffectSettings, for state: LightState) {
         switch state {
         case .working: working = effect
-        case .waitingApproval: waitingApproval = effect
+        case .actionRequired: actionRequired = effect
         case .error: error = effect
         case .done: done = effect
         case .idle: break
@@ -140,7 +140,7 @@ struct GeorgeLightConfiguration {
         let configured = userDefaults.string(forKey: Self.baseURLDefaultsKey)
         baseURL = configured.flatMap(Self.validBaseURL) ?? Self.defaultBaseURL
         effects = .defaults
-        for state in [LightState.working, .waitingApproval, .error, .done] {
+        for state in [LightState.working, .actionRequired, .error, .done] {
             guard var effect = effects.effect(for: state) else { continue }
             if let storedColor = userDefaults.string(forKey: Self.colorDefaultsKey(for: state)),
                let allowed = GeorgeLightColors.options(for: state).first(where: {
@@ -182,7 +182,8 @@ struct GeorgeLightConfiguration {
     private static func defaultsStateName(_ state: LightState) -> String {
         switch state {
         case .working: return "Working"
-        case .waitingApproval: return "WaitingApproval"
+        // Keep the legacy key so upgrades preserve the user's Waiting Approval effect.
+        case .actionRequired: return "WaitingApproval"
         case .error: return "Error"
         case .done: return "Done"
         case .idle: return "Idle"

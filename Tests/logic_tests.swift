@@ -40,6 +40,12 @@ check(owned("tool", 79378, "global", 30).isDisplayEligible(now: now, ownerAlive:
 check(!owned("tool", 79378, "global", 61).isDisplayEligible(now: now, ownerAlive: true), "old global owner active state stops displaying")
 check(owned("permission", 0, "unknown", 30).isDisplayEligible(now: now, ownerAlive: false), "recent unknown owner active state stays briefly visible")
 check(!owned("permission", 0, "unknown", 61).isDisplayEligible(now: now, ownerAlive: false), "old unknown owner active state stops displaying")
+check(owned("permission", 4242, "global", 901).isDisplayEligible(now: now, ownerAlive: true), "live owner keeps approval visible past stale timeout")
+check(!owned("permission", 4242, "global", 901).isDisplayEligible(now: now, ownerAlive: false), "dead owner removes stale approval")
+check(owned("waitingImplementation", 4242, "global", 901).isDisplayEligible(now: now, ownerAlive: true), "live owner keeps implementation wait visible past stale timeout")
+check(!owned("waitingImplementation", 4242, "global", 901).isDisplayEligible(now: now, ownerAlive: false), "dead owner removes implementation wait")
+check(owned("waitingImplementation", 4242, "global", 901).endedByOwnerExit(ownerAlive: false), "action wait ends with any recorded owner")
+check(owned("waitingImplementation", 4242, "global", 901).isRenderable(now: now, terminalShownAt: now - 100), "implementation wait never uses terminal timeout")
 check(owned("done", 0, "unknown", 600).isDisplayEligible(now: now, ownerAlive: false), "recent done state remains selectable for done rendering")
 check(!owned("done", 0, "unknown", 901).isDisplayEligible(now: now, ownerAlive: false), "stale done state is not selectable")
 
@@ -66,6 +72,12 @@ if let parsedClaude = SessionState(json: ["state": "waitingApproval", "provider"
 if let parsedLegacyCodex = SessionState(json: ["state": "tool", "sessionId": "legacy"]) {
     eq(parsedLegacyCodex.provider, .codex, "legacy Codex JSON defaults provider")
     eq(parsedLegacyCodex.normalizedState, .working, "legacy Codex tool normalizes")
+}
+if let parsedImplementation = SessionState(json: ["state": "waitingImplementation", "sessionId": "plan"]) {
+    eq(parsedImplementation.normalizedState, .waitingImplementation, "implementation wait normalizes")
+    eq(parsedImplementation.normalizedState.menuTitle, "Waiting Implementation", "implementation menu title")
+} else {
+    check(false, "implementation wait JSON parses")
 }
 
 // ---- selectDisplay: pinned wins if alive, else most recent alive, else nil ----
@@ -109,6 +121,10 @@ var claudeApproval = claudeWorking
 claudeApproval.sessionId = "approval"
 claudeApproval.state = "waitingApproval"
 claudeApproval.ts = now
+var codexImplementation = codexSameId
+codexImplementation.sessionId = "implementation"
+codexImplementation.state = "waitingImplementation"
+codexImplementation.ts = now
 var codexDone = doneRecent
 codexDone.provider = .codex
 var claudeError = errorRecent
@@ -123,11 +139,20 @@ eq(arbitrateAgentState(enabledProviders: [.codex, .claude],
                        sessions: [claudeApproval, claudeError], now: now),
    .waitingApproval, "approval wins over error")
 eq(arbitrateAgentState(enabledProviders: [.codex, .claude],
+                       sessions: [codexImplementation, claudeError, claudeWorking], now: now),
+   .waitingImplementation, "implementation wait wins over error and working")
+eq(arbitrateAgentState(enabledProviders: [.codex, .claude],
+                       sessions: [codexImplementation, claudeApproval], now: now),
+   .waitingApproval, "approval wins over implementation wait")
+eq(arbitrateAgentState(enabledProviders: [.codex, .claude],
                        sessions: [codexSameId, claudeWorking, codexDone], now: now),
    .working, "working wins over done across providers")
 eq(arbitrateAgentState(enabledProviders: [.codex],
                        sessions: [claudeApproval, codexDone], now: now),
    .done, "disabled Claude state is ignored")
+eq(arbitrateAgentState(enabledProviders: [.claude],
+                       sessions: [codexImplementation, claudeWorking], now: now),
+   .working, "disabled Codex implementation wait is ignored")
 eq(arbitrateAgentState(enabledProviders: [.codex], sessions: [doneStaleNoSentinel], now: now),
    .idle, "expired done arbitrates to idle")
 eq(arbitrateAgentState(enabledProviders: [.claude], sessions: [codexSameId], now: now),
@@ -150,7 +175,9 @@ providerDefaults.removePersistentDomain(forName: providerSuiteName)
 // ---- final Codex state -> GeorgeLight state ----
 eq(LightState(codexState: "thinking"), .working, "thinking maps to working")
 eq(LightState(codexState: "tool"), .working, "tool maps to working")
-eq(LightState(codexState: "permission"), .waitingApproval, "permission maps to waiting approval")
+eq(LightState(codexState: "permission"), .actionRequired, "permission maps to action required")
+eq(LightState(codexState: "waitingApproval"), .actionRequired, "Claude approval maps to action required")
+eq(LightState(codexState: "waitingImplementation"), .actionRequired, "implementation wait maps to action required")
 eq(LightState(codexState: "error"), .error, "error maps to error")
 eq(LightState(codexState: "done"), .done, "done maps to done")
 eq(LightState(codexState: "idle"), .idle, "idle maps to idle")
@@ -159,7 +186,7 @@ eq(LightState(codexState: "future-state"), .idle, "unknown states fail safe to i
 
 let defaultEffects = GeorgeLightEffectConfiguration.defaults
 eq(defaultEffects.working.mode, .breath, "working uses built-in breath mode")
-eq(defaultEffects.waitingApproval.mode, .fastBlink, "approval uses built-in fast blink mode")
+eq(defaultEffects.actionRequired.mode, .fastBlink, "action required uses built-in fast blink mode")
 eq(defaultEffects.error.color, "#FF0000", "error uses firmware red")
 eq(defaultEffects.error.mode, .fastBlink, "error uses fast blink mode")
 eq(defaultEffects.error.durationSeconds, 10, "error is a short display effect")
@@ -173,7 +200,7 @@ eq(GeorgeLightColors.firmwarePresets.map { $0.hex },
    ["#FF0000", "#00FF00", "#FFFF00", "#FFFFFF", "#000000", "#FF8000", "#0000FF", "#8000FF"],
    "firmware 1.0.1 preset palette")
 eq(GeorgeLightColors.options(for: .working).first?.hex, "#4D8FFF", "working default color is first")
-eq(GeorgeLightColors.options(for: .waitingApproval).first?.hex, "#F2BA2E", "approval default color is first")
+eq(GeorgeLightColors.options(for: .actionRequired).first?.hex, "#F2BA2E", "action-required default color is first")
 eq(GeorgeLightColors.options(for: .error).first?.title, "Red", "error starts with firmware Red preset")
 eq(GeorgeLightColors.options(for: .error).filter { $0.hex == "#FF0000" }.count, 1,
    "error red option is not duplicated")
