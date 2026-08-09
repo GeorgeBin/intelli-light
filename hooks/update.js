@@ -30,13 +30,27 @@ function hasCompleteProposedPlan(value) {
   return /<proposed_plan>[\s\S]*<\/proposed_plan>/.test(String(value || ""));
 }
 
+function payloadCollaborationMode(payload) {
+  const candidates = [payload.collaboration_mode_kind, payload.collaboration_mode];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate) return candidate;
+    if (candidate && typeof candidate === "object") {
+      if (typeof candidate.kind === "string" && candidate.kind) return candidate.kind;
+      if (typeof candidate.mode === "string" && candidate.mode) return candidate.mode;
+    }
+  }
+  return null;
+}
+
+// true = completed Plan, false = current turn is definitively not a completed Plan,
+// null = transcript is missing, unreadable, or has not flushed enough to decide.
 function transcriptEndsWithPlan(transcriptPath) {
-  if (!transcriptPath || typeof transcriptPath !== "string") return false;
+  if (!transcriptPath || typeof transcriptPath !== "string") return null;
   let fd;
   try {
     fd = fs.openSync(transcriptPath, "r");
     const stat = fs.fstatSync(fd);
-    if (!stat.isFile() || stat.size <= 0) return false;
+    if (!stat.isFile() || stat.size <= 0) return null;
     const start = Math.max(0, stat.size - TRANSCRIPT_TAIL_BYTES);
     const buffer = Buffer.alloc(stat.size - start);
     fs.readSync(fd, buffer, 0, buffer.length, start);
@@ -52,6 +66,7 @@ function transcriptEndsWithPlan(transcriptPath) {
       const payload = item && item.payload;
       if (item.type === "event_msg" && payload?.type === "task_started") {
         currentMode = payload.collaboration_mode_kind || null;
+        lastAssistant = null;
       }
       if (item.type === "response_item" && payload?.type === "message" && payload.role === "assistant") {
         const message = Array.isArray(payload.content)
@@ -59,18 +74,24 @@ function transcriptEndsWithPlan(transcriptPath) {
         lastAssistant = { message, mode: currentMode, phase: payload.phase || "" };
       }
     }
-    return lastAssistant?.mode === "plan" && lastAssistant.phase === "final_answer"
-      && hasCompleteProposedPlan(lastAssistant.message);
+    if (!currentMode) return null;
+    if (currentMode !== "plan") return false;
+    if (!lastAssistant || lastAssistant.phase !== "final_answer") return null;
+    return hasCompleteProposedPlan(lastAssistant.message);
   } catch {
-    return false;
+    return null;
   } finally {
     if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
   }
 }
 
 function stopCompletedPlan(payload) {
-  if (hasCompleteProposedPlan(payload.last_assistant_message)) return true;
-  return transcriptEndsWithPlan(payload.transcript_path);
+  const transcriptResult = transcriptEndsWithPlan(payload.transcript_path);
+  if (transcriptResult !== null) return transcriptResult;
+
+  const payloadMode = payloadCollaborationMode(payload);
+  if (payloadMode !== null && payloadMode !== "plan") return false;
+  return hasCompleteProposedPlan(payload.last_assistant_message);
 }
 
 function classifyOwnerKind(args) {

@@ -6,6 +6,9 @@ All notable changes to Codex Status Bar are documented here. The format is based
 
 ## [Unreleased]
 
+### Fixed
+- Default-mode answers that quote a complete `<proposed_plan>` block no longer enter Waiting Implementation when the transcript identifies the current turn as non-Plan; transcript-lag fallback still preserves genuine Plan completions.
+
 ### Added
 - Completed Codex Plan Mode turns now enter a persistent `Waiting Implementation` state until the user submits the implementation prompt or the session ends.
 

@@ -77,9 +77,12 @@ The repository ships a Codex plugin manifest under `.codex-plugin/`. Install it 
 
 The hook scripts run locally and make **no network requests**. On each Codex event they read
 `session_id`, the current working directory (only its basename, shown as the project name),
-`tool_name`, `transcript_path`, and the Stop event's `last_assistant_message`. When that Stop
-field is unavailable, the hook reads at most the final 1 MiB of the local transcript to verify
-that the latest Plan turn ended with a complete `<proposed_plan>`. They write status files under `~/.codex/statusbar/`
+`tool_name`, `transcript_path`, and the Stop event's `last_assistant_message`. On Stop, the hook
+reads at most the final 1 MiB of the local transcript and treats its latest turn mode as
+authoritative: only `plan` + `final_answer` + a complete `<proposed_plan>` enters Waiting
+Implementation. If that transcript is unavailable or not fully flushed, an explicit mode in the
+Stop payload is checked next; when no mode is available, a complete plan block in
+`last_assistant_message` is retained as a best-effort fallback. They write status files under `~/.codex/statusbar/`
 (`states.d/`, `sessions.d/`). Setting `CODEX_STATUSBAR_DEBUG=1` additionally appends tool
 names and payload keys to `~/.codex/statusbar/hooks.log`. The app itself also appends turn-timeout
 records to `~/.codex/statusbar/app.log`. Nothing leaves your machine.

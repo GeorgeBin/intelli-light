@@ -176,7 +176,7 @@ test("stop writes done with startedAt cleared", () => {
   assert.equal(s.pauseStart, 0);
 });
 
-test("plan Stop payload enters waitingImplementation and next prompt resumes Working", () => {
+test("Plan marker fallback works without a transcript and next prompt resumes Working", () => {
   using h = withTempHome();
   runHook(h.home, "prompt", { session_id: "plan-direct", cwd: "/p" });
   runHook(h.home, "stop", {
@@ -220,10 +220,14 @@ test("Stop does not mistake an older plan or a normal quoted tag for the final P
     { type: "event_msg", payload: { type: "task_started", collaboration_mode_kind: "default" } },
     { type: "response_item", payload: {
       type: "message", role: "assistant", phase: "final_answer",
-      content: [{ type: "output_text", text: "Ordinary answer" }],
+      content: [{ type: "output_text", text: "Quoted example: <proposed_plan>not a plan</proposed_plan>" }],
     } },
   ]);
-  runHook(h.home, "stop", { session_id: "ordinary", transcript_path: transcript });
+  runHook(h.home, "stop", {
+    session_id: "ordinary",
+    transcript_path: transcript,
+    last_assistant_message: "Quoted example: <proposed_plan>not a plan</proposed_plan>",
+  });
   assert.equal(readState(h.home, "ordinary").state, "done");
 
   runHook(h.home, "stop", {
@@ -231,6 +235,52 @@ test("Stop does not mistake an older plan or a normal quoted tag for the final P
     last_assistant_message: "The opening tag is <proposed_plan>, but this is not a complete block.",
   });
   assert.equal(readState(h.home, "quoted").state, "done");
+});
+
+test("partially flushed Plan transcript falls back to the Stop message", () => {
+  using h = withTempHome();
+  const transcript = writeTranscript(h.home, "partial-plan", [
+    { type: "event_msg", payload: { type: "task_started", collaboration_mode_kind: "plan" } },
+    { type: "response_item", payload: {
+      type: "message", role: "assistant", phase: "commentary",
+      content: [{ type: "output_text", text: "Finalizing the plan" }],
+    } },
+  ]);
+  runHook(h.home, "stop", {
+    session_id: "partial-plan",
+    transcript_path: transcript,
+    last_assistant_message: "<proposed_plan>complete payload plan</proposed_plan>",
+  });
+  assert.equal(readState(h.home, "partial-plan").state, "waitingImplementation");
+});
+
+test("unavailable transcript fallback honors explicit payload mode", () => {
+  using h = withTempHome();
+  const missing = path.join(h.home, "missing.jsonl");
+  const message = "Example <proposed_plan>complete block</proposed_plan>";
+
+  runHook(h.home, "stop", {
+    session_id: "payload-default",
+    transcript_path: missing,
+    collaboration_mode_kind: "default",
+    last_assistant_message: message,
+  });
+  assert.equal(readState(h.home, "payload-default").state, "done");
+
+  runHook(h.home, "stop", {
+    session_id: "payload-plan",
+    transcript_path: missing,
+    collaboration_mode: { kind: "plan" },
+    last_assistant_message: message,
+  });
+  assert.equal(readState(h.home, "payload-plan").state, "waitingImplementation");
+
+  runHook(h.home, "stop", {
+    session_id: "payload-unknown",
+    transcript_path: missing,
+    last_assistant_message: message,
+  });
+  assert.equal(readState(h.home, "payload-unknown").state, "waitingImplementation");
 });
 
 test("post without a preceding permission leaves pausedTotal at 0", () => {
