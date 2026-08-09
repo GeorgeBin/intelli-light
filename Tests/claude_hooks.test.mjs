@@ -35,7 +35,8 @@ test("Claude events map to unified states without hook output", () => {
   const payload = { session_id: "claude-a", cwd: "/work/projectA", transcript_path: "/tmp/a.jsonl" };
   for (const [event, expected] of [
     ["prompt", "working"], ["pre", "working"], ["post", "working"],
-    ["post-failure", "working"], ["permission", "waitingApproval"], ["stop", "done"],
+    ["post-failure", "working"], ["permission", "waitingApproval"],
+    ["stop-failure", "error"], ["stop", "done"],
   ]) {
     const result = run(h.home, UPDATE, event, { ...payload, tool_name: "Bash" }, {
       CLAUDE_STATUSBAR_TEST_OWNER_PID: "4321",
@@ -48,6 +49,22 @@ test("Claude events map to unified states without hook output", () => {
     assert.equal(state.project, "projectA");
     assert.equal(state.ownerPid, 4321);
   }
+});
+
+test("StopFailure maps every API error type to Error while tool failure stays Working", () => {
+  using h = withTempHome();
+  const payload = { session_id: "failed", cwd: "/work/p" };
+  for (const error of ["rate_limit", "authentication_failed", "server_error", "unknown"]) {
+    const result = run(h.home, UPDATE, "stop-failure", { ...payload, error });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, "", "StopFailure hook stays silent");
+    const state = readState(h.home, "failed");
+    assert.equal(state.state, "error", error);
+    assert.equal(state.startedAt, 0);
+    assert.equal(state.pauseStart, 0);
+  }
+  run(h.home, UPDATE, "post-failure", { ...payload, tool_name: "Bash" });
+  assert.equal(readState(h.home, "failed").state, "working");
 });
 
 test("Claude permission pause closes on PostToolUseFailure", () => {

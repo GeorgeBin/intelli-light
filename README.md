@@ -65,7 +65,7 @@ Approval is tied to the exact contents of the hooks. **Updating the app can chan
 If first-launch setup ever does not take, you can run it manually:
 
 ```bash
-node "/Applications/Codex Status Bar.app/Contents/Resources/install.js"
+node "/Applications/Codex Status Bar.app/Contents/Resources/install.js" --providers=codex,claude
 ```
 
 ## Install — Codex plugin

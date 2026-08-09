@@ -3,6 +3,7 @@ import Foundation
 enum LightState: Equatable {
     case working
     case waitingApproval
+    case error
     case done
     case idle
 
@@ -10,6 +11,7 @@ enum LightState: Equatable {
         switch codexState {
         case "thinking", "tool": self = .working
         case "permission": self = .waitingApproval
+        case "error": self = .error
         case "done": self = .done
         default: self = .idle
         }
@@ -19,6 +21,7 @@ enum LightState: Equatable {
         switch self {
         case .working: return "Working"
         case .waitingApproval: return "Waiting Approval"
+        case .error: return "Error"
         case .done: return "Done"
         case .idle: return "Idle"
         }
@@ -71,6 +74,9 @@ enum GeorgeLightColors {
 
     static func options(for state: LightState) -> [GeorgeLightColorOption] {
         guard let effect = GeorgeLightEffectConfiguration.defaults.effect(for: state) else { return [] }
+        if firmwarePresets.contains(where: { $0.hex.caseInsensitiveCompare(effect.color) == .orderedSame }) {
+            return firmwarePresets
+        }
         return [GeorgeLightColorOption(title: "Default", hex: effect.color)] + firmwarePresets
     }
 }
@@ -85,6 +91,7 @@ struct GeorgeLightEffectSettings: Equatable {
 struct GeorgeLightEffectConfiguration: Equatable {
     var working: GeorgeLightEffectSettings
     var waitingApproval: GeorgeLightEffectSettings
+    var error: GeorgeLightEffectSettings
     var done: GeorgeLightEffectSettings
 
     static let defaults = GeorgeLightEffectConfiguration(
@@ -92,6 +99,8 @@ struct GeorgeLightEffectConfiguration: Equatable {
             color: "#4D8FFF", mode: .breath, durationSeconds: 300, brightness: 70),
         waitingApproval: GeorgeLightEffectSettings(
             color: "#F2BA2E", mode: .fastBlink, durationSeconds: 300, brightness: 90),
+        error: GeorgeLightEffectSettings(
+            color: "#FF0000", mode: .fastBlink, durationSeconds: 10, brightness: 90),
         done: GeorgeLightEffectSettings(
             color: "#4DC766", mode: .solid, durationSeconds: 10, brightness: 80))
 
@@ -99,6 +108,7 @@ struct GeorgeLightEffectConfiguration: Equatable {
         switch state {
         case .working: return working
         case .waitingApproval: return waitingApproval
+        case .error: return error
         case .done: return done
         case .idle: return nil
         }
@@ -108,6 +118,7 @@ struct GeorgeLightEffectConfiguration: Equatable {
         switch state {
         case .working: working = effect
         case .waitingApproval: waitingApproval = effect
+        case .error: error = effect
         case .done: done = effect
         case .idle: break
         }
@@ -129,7 +140,7 @@ struct GeorgeLightConfiguration {
         let configured = userDefaults.string(forKey: Self.baseURLDefaultsKey)
         baseURL = configured.flatMap(Self.validBaseURL) ?? Self.defaultBaseURL
         effects = .defaults
-        for state in [LightState.working, .waitingApproval, .done] {
+        for state in [LightState.working, .waitingApproval, .error, .done] {
             guard var effect = effects.effect(for: state) else { continue }
             if let storedColor = userDefaults.string(forKey: Self.colorDefaultsKey(for: state)),
                let allowed = GeorgeLightColors.options(for: state).first(where: {
@@ -172,6 +183,7 @@ struct GeorgeLightConfiguration {
         switch state {
         case .working: return "Working"
         case .waitingApproval: return "WaitingApproval"
+        case .error: return "Error"
         case .done: return "Done"
         case .idle: return "Idle"
         }

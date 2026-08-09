@@ -6,12 +6,19 @@ struct InstallerLaunchConfiguration {
     let environment: [String: String]
 }
 
-func installerLaunchConfiguration(installer: String, environment: [String: String] = ProcessInfo.processInfo.environment) -> InstallerLaunchConfiguration {
+func installerProviderArgument(_ providers: Set<AgentProvider>) -> String {
+    "--providers=\(providers.map(\.rawValue).sorted().joined(separator: ","))"
+}
+
+func installerLaunchConfiguration(installer: String, providers: Set<AgentProvider>,
+                                  environment: [String: String] = ProcessInfo.processInfo.environment) -> InstallerLaunchConfiguration {
     var env = environment
     let existingPath = env["PATH"] ?? ""
     let prefix = "/opt/homebrew/bin:/usr/local/bin"
     env["PATH"] = existingPath.isEmpty ? prefix : "\(prefix):\(existingPath)"
-    return InstallerLaunchConfiguration(executablePath: "/usr/bin/env", arguments: ["node", installer], environment: env)
+    return InstallerLaunchConfiguration(
+        executablePath: "/usr/bin/env",
+        arguments: ["node", installer, installerProviderArgument(providers)], environment: env)
 }
 
 func shellQuoted(_ value: String) -> String {

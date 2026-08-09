@@ -83,6 +83,7 @@ struct LightOutputTests {
         testLatestStateWaitsForOlderRequest()
         testFailureDoesNotBlockLaterClear()
         testWorkingLeaseRefreshes()
+        testErrorPayloadDoesNotLeaseRefresh()
         testNetworkFailureRetries()
         testHTTP409Retries()
         testClearFailureRetries()
@@ -131,6 +132,14 @@ struct LightOutputTests {
         eq(restored.effects.working.durationSeconds, 300, "working duration remains fixed")
         eq(restored.effects.waitingApproval.color, "#F2BA2E", "invalid color falls back")
         eq(restored.effects.waitingApproval.mode, .fastBlink, "invalid mode falls back")
+        eq(restored.effects.error.color, "#FF0000", "error defaults to firmware red")
+        eq(restored.effects.error.mode, .fastBlink, "error defaults to fast blink")
+
+        var error = restored.effects.error
+        error.color = "#8000FF"
+        error.mode = .breath
+        restored.effects.setEffect(error, for: .error)
+        restored.persistEffect(for: .error, to: defaults)
 
         var done = restored.effects.done
         done.color = "#8000FF"
@@ -140,6 +149,8 @@ struct LightOutputTests {
         let roundTrip = GeorgeLightConfiguration(userDefaults: defaults)
         eq(roundTrip.effects.done.color, "#8000FF", "effect color persists")
         eq(roundTrip.effects.done.mode, .breath, "effect mode persists")
+        eq(roundTrip.effects.error.color, "#8000FF", "error color persists")
+        eq(roundTrip.effects.error.mode, .breath, "error mode persists")
         defaults.set("not a URL", forKey: GeorgeLightConfiguration.baseURLDefaultsKey)
         eq(GeorgeLightConfiguration(userDefaults: defaults).baseURL,
            GeorgeLightConfiguration.defaultBaseURL, "invalid override falls back to default")
@@ -269,6 +280,33 @@ struct LightOutputTests {
               "lease refresh uses display endpoint")
         check(captured.allSatisfy { payload($0)["color"] as? String == "#4D8FFF" },
               "lease refresh preserves working state")
+    }
+
+    static func testErrorPayloadDoesNotLeaseRefresh() {
+        let sent = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var requests: [URLRequest] = []
+        setHandler { proto, request in
+            lock.lock(); requests.append(request); lock.unlock()
+            proto.succeed()
+            sent.signal()
+        }
+
+        let output = GeorgeLightHttpOutput(
+            baseURL: URL(string: "http://lamp.local")!, session: makeSession(),
+            leaseRefreshInterval: 0.05, retryDelays: [0.02])
+        output.setLightState(.error)
+        wait(sent, "error request was not sent")
+        Thread.sleep(forTimeInterval: 0.15)
+
+        lock.lock(); let captured = requests; lock.unlock()
+        eq(captured.count, 1, "error terminal state has no lease refresh")
+        guard let request = captured.first else { return }
+        let json = payload(request)
+        eq(json["color"] as? String, "#FF0000", "error payload uses red")
+        eq((json["mode_id"] as? NSNumber)?.intValue, 4, "error payload uses fast blink")
+        eq((json["duration_sec"] as? NSNumber)?.intValue, 10, "error payload is short")
+        eq((json["brightness"] as? NSNumber)?.intValue, 90, "error brightness")
     }
 
     static func testNetworkFailureRetries() {

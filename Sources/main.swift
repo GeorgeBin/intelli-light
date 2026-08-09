@@ -27,13 +27,14 @@ final class StatusController: NSObject, NSMenuDelegate {
     var sessions: [String: (state: SessionState, mtime: Date)] = [:]
     var pinnedSession: String?
     var pinnedDiedAt: Date?   // when the pinned session went stale; grey it for 5s before dropping
-    var doneShownAt: [String: Date] = [:]   // per-session "Done" dismiss clocks
+    var terminalShownAt: [String: Date] = [:] // per-session Done/Error dismiss clocks
     var timeoutLogged: Set<String> = []    // sessionIds already logged as timed out (dedupe per stuck episode)
 
     var lastMTime: Date = .distantPast
     var pollTimer: Timer?
     var animTimer: Timer?
     var frameIdx = 0
+    let hookInstallerQueue = DispatchQueue(label: "io.github.kiwigaze.codexstatusbar.hook-installer")
 
     // Self-quit lifecycle: we're launched by the session-start hook; we decide when to
     // leave (see checkLifecycle). No background/login item — the check only runs while
@@ -52,6 +53,7 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     let brand = NSColor(srgbRed: 0.30, green: 0.56, blue: 1.00, alpha: 1) // #4D8FFF accent
     let amber = NSColor(srgbRed: 0.95, green: 0.73, blue: 0.18, alpha: 1) // "awaiting permission" yellow dot
+    let errorRed = NSColor(srgbRed: 1.00, green: 0.00, blue: 0.00, alpha: 1)
     let frames: [NSImage] = StatusController.loadFrames() // prompt morph masks
     let spriteFPS: Double = 9 // tune: frames per loop -> ~0.9s/cycle
 
@@ -87,14 +89,15 @@ final class StatusController: NSObject, NSMenuDelegate {
     // user just drags the app in and opens it — no manual Terminal step. Runs on first
     // install AND whenever the version or bundled hook resources change, so upgrades pick
     // up new/changed hooks and retire old artifacts. install.js is idempotent.
-    func ensureHooksInstalled() {
+    func ensureHooksInstalled(force: Bool = false) {
         let d = UserDefaults.standard
         let current = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? ""
         guard let installer = Bundle.main.path(forResource: "install", ofType: "js") else { return }
-        let fingerprint = "\(current)|\(hookInstallFingerprint(installer: installer))"
-        guard d.string(forKey: "installedHookFingerprint") != fingerprint else { return }
-        DispatchQueue.global().async { [weak self] in
-            let config = installerLaunchConfiguration(installer: installer)
+        let providers = agentConfiguration.enabledProviders
+        let fingerprint = "\(current)|\(installerProviderArgument(providers))|\(hookInstallFingerprint(installer: installer))"
+        guard force || d.string(forKey: "installedHookFingerprint") != fingerprint else { return }
+        hookInstallerQueue.async { [weak self] in
+            let config = installerLaunchConfiguration(installer: installer, providers: providers)
             let task = Process()
             task.executableURL = URL(fileURLWithPath: config.executablePath)
             task.arguments = config.arguments
@@ -104,18 +107,19 @@ final class StatusController: NSObject, NSMenuDelegate {
             if installed {
                 UserDefaults.standard.set(fingerprint, forKey: "installedHookFingerprint")
             } else {
-                self?.showInstallerFailure(installer: installer)
+                self?.showInstallerFailure(installer: installer, providers: providers)
             }
         }
     }
 
-    func showInstallerFailure(installer: String) {
+    func showInstallerFailure(installer: String, providers: Set<AgentProvider>) {
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
             let alert = NSAlert()
             alert.alertStyle = .warning
             alert.messageText = "Codex Status Bar couldn’t set up its agent hooks"
-            alert.informativeText = "The Codex and Claude Code hooks weren’t installed — Node.js may not be on the app’s PATH. Open Terminal and run:\n\nnode \(shellQuoted(installer))\n\nThen restart the agent."
+            let providerArgument = installerProviderArgument(providers)
+            alert.informativeText = "The selected agent hooks weren’t configured — Node.js may not be on the app’s PATH. Open Terminal and run:\n\nnode \(shellQuoted(installer)) \(shellQuoted(providerArgument))\n\nThen restart the agent."
             alert.addButton(withTitle: "OK")
             alert.runModal()
         }
@@ -181,7 +185,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         addressItem.target = self
         menu.addItem(addressItem)
 
-        for state in [LightState.working, .waitingApproval, .done] {
+        for state in [LightState.working, .waitingApproval, .error, .done] {
             menu.addItem(georgeLightEffectMenuItem(for: state))
         }
 
@@ -305,6 +309,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         pinnedDiedAt = nil
         notNeededSince = nil
         evaluate()
+        ensureHooksInstalled(force: true)
     }
 
     @objc func toggleGeorgeLight() {
@@ -437,8 +442,16 @@ final class StatusController: NSObject, NSMenuDelegate {
                       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       var st = SessionState(json: obj) else { continue }
                 st.provider = provider
+                let stateKey = st.key.persistedValue
+                if st.normalizedState == .done || st.normalizedState == .error {
+                    // A changed terminal file is a new terminal event, even when the same
+                    // session previously reached Done/Error. Start a fresh short window.
+                    terminalShownAt[stateKey] = Date(timeIntervalSince1970: st.ts)
+                } else {
+                    terminalShownAt.removeValue(forKey: stateKey)
+                }
                 sessions[cacheKey] = (st, m)
-                seenIds.insert(st.key.persistedValue)
+                seenIds.insert(stateKey)
             }
         }
         // A loaded legacy Codex state has no states.d filename to rediscover. Keep the
@@ -450,7 +463,7 @@ final class StatusController: NSObject, NSMenuDelegate {
             seenIds.insert(legacy.state.key.persistedValue)
         }
         for k in sessions.keys where !seen.contains(k) { sessions.removeValue(forKey: k) }
-        for k in doneShownAt.keys where !seenIds.contains(k) { doneShownAt.removeValue(forKey: k) }
+        for k in terminalShownAt.keys where !seenIds.contains(k) { terminalShownAt.removeValue(forKey: k) }
         for k in timeoutLogged where !seenIds.contains(k) { timeoutLogged.remove(k) }
 
         // Timeout sweep — runs EVERY tick over the in-memory cache, NOT gated by mtime.
@@ -499,18 +512,20 @@ final class StatusController: NSObject, NSMenuDelegate {
         let all = sessions.map { $0.value.state }.filter {
             enabled.contains($0.provider) && displayEligible($0, now: now)
         }
-        let doneTimes = doneShownAt.mapValues { $0.timeIntervalSince1970 }
+        let terminalTimes = terminalShownAt.mapValues { $0.timeIntervalSince1970 }
         let globalState = arbitrateAgentState(
-            enabledProviders: enabled, sessions: all, now: now, doneShownAt: doneTimes)
+            enabledProviders: enabled, sessions: all, now: now, terminalShownAt: terminalTimes)
         let globalLightState: LightState
         switch globalState {
         case .working: globalLightState = .working
         case .waitingApproval: globalLightState = .waitingApproval
+        case .error: globalLightState = .error
         case .done: globalLightState = .done
         case .idle: globalLightState = .idle
         }
         lightOutput.setLightState(globalLightState)
-        guard let chosen = selectDisplay(pinned: pinnedSession, sessions: all, now: now, doneShownAt: doneTimes) else {
+        guard let chosen = selectDisplay(
+            pinned: pinnedSession, sessions: all, now: now, terminalShownAt: terminalTimes) else {
             render(label: "", color: iconColor, animate: false, startedAt: 0,
                    pausedTotal: 0, pauseStart: 0)
             return
@@ -533,31 +548,35 @@ final class StatusController: NSObject, NSMenuDelegate {
             render(label: "Awaiting permission", color: amber, animate: false,
                    startedAt: chosen.startedAt, pausedTotal: chosen.pausedTotal,
                    pauseStart: chosen.pauseStart, dot: true)
+        case .error:
+            renderTerminal(chosen: chosen, now: now, label: "Error", color: errorRed, doneIcon: false)
         case .done:
-            renderDone(chosen: chosen, now: now)
+            renderTerminal(
+                chosen: chosen, now: now, label: "Done",
+                color: NSColor(srgbRed: 0.30, green: 0.78, blue: 0.40, alpha: 1), doneIcon: true)
         case .idle:
             render(label: "", color: iconColor, animate: false, startedAt: 0,
                    pausedTotal: 0, pauseStart: 0)
         }
     }
 
-    // Show a brief "Done" confirmation for 2s after a session's Stop event, so users
-    // can distinguish "just finished" from "idle". Falls back to the resting mark after.
-    // The doneShownAt entry is a permanent "already shown" sentinel (NOT cleared after
-    // 2s) — clearing it would re-trigger firstShow on the next tick while the state
-    // file still says "done", causing the green checkmark to flicker forever.
+    // Show a brief Done/Error confirmation for 2s after a terminal event, then return
+    // to the resting mark so terminal state files cannot hold the UI or light forever.
+    // The terminalShownAt entry is a permanent "already shown" sentinel (NOT cleared
+    // after 2s) — clearing it would replay Done/Error while the state file is unchanged.
     // loadSessions prunes the entry when the session file disappears.
-    func renderDone(chosen: SessionState, now: TimeInterval) {
+    func renderTerminal(chosen: SessionState, now: TimeInterval, label: String,
+                        color: NSColor, doneIcon: Bool) {
         let key = chosen.key.persistedValue
-        let shownAt = doneShownAt[key]?.timeIntervalSince1970 ?? chosen.ts
-        doneShownAt[key] = Date(timeIntervalSince1970: shownAt)
-        if now - shownAt > SessionState.doneVisibleFor {
+        let shownAt = terminalShownAt[key]?.timeIntervalSince1970 ?? chosen.ts
+        terminalShownAt[key] = Date(timeIntervalSince1970: shownAt)
+        if now - shownAt > SessionState.terminalVisibleFor {
             render(label: "", color: iconColor, animate: false,
                    startedAt: 0, pausedTotal: 0, pauseStart: 0)
             return
         }
-        render(label: "Done", color: NSColor(srgbRed: 0.30, green: 0.78, blue: 0.40, alpha: 1),
-               animate: false, startedAt: 0, pausedTotal: 0, pauseStart: 0, done: true)
+        render(label: label, color: color, animate: false, startedAt: 0,
+               pausedTotal: 0, pauseStart: 0, dot: !doneIcon, done: doneIcon)
     }
 
     func appendTimeoutLog(chosen: SessionState, age: TimeInterval) {

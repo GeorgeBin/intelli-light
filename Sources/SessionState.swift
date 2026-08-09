@@ -45,7 +45,8 @@ enum AgentState: Int, Equatable, Comparable {
     case idle = 0
     case done = 1
     case working = 2
-    case waitingApproval = 3
+    case error = 3
+    case waitingApproval = 4
 
     static func < (lhs: AgentState, rhs: AgentState) -> Bool {
         lhs.rawValue < rhs.rawValue
@@ -55,6 +56,7 @@ enum AgentState: Int, Equatable, Comparable {
         switch self {
         case .working: return "Working"
         case .waitingApproval: return "Waiting Approval"
+        case .error: return "Error"
         case .done: return "Done"
         case .idle: return "Idle"
         }
@@ -103,7 +105,7 @@ struct SessionState {
     /// Mirrors the 900s safety net in main.swift's evaluate().
     static let staleAfter: TimeInterval = 900
     static let unreliableOwnerDisplayAfter: TimeInterval = 60
-    static let doneVisibleFor: TimeInterval = 2
+    static let terminalVisibleFor: TimeInterval = 2
 }
 
 extension SessionState {
@@ -130,6 +132,7 @@ extension SessionState {
         switch state {
         case "thinking", "tool", "working": return .working
         case "permission", "waitingApproval": return .waitingApproval
+        case "error": return .error
         case "done": return .done
         default: return .idle
         }
@@ -154,9 +157,9 @@ extension SessionState {
         }
     }
 
-    func isRenderable(now: TimeInterval, doneShownAt: TimeInterval?) -> Bool {
-        guard normalizedState == .done else { return true }
-        return now - (doneShownAt ?? ts) <= SessionState.doneVisibleFor
+    func isRenderable(now: TimeInterval, terminalShownAt: TimeInterval?) -> Bool {
+        guard normalizedState == .done || normalizedState == .error else { return true }
+        return now - (terminalShownAt ?? ts) <= SessionState.terminalVisibleFor
     }
 
     func endedByOwnerExit(ownerAlive: Bool) -> Bool {
@@ -174,7 +177,7 @@ func pinnedSessionMatches(_ pinned: String?, _ session: SessionState) -> Bool {
     return session.provider == .codex && session.sessionId == pinned
 }
 
-private func doneTimestamp(for session: SessionState, in values: [String: TimeInterval]) -> TimeInterval? {
+private func terminalTimestamp(for session: SessionState, in values: [String: TimeInterval]) -> TimeInterval? {
     values[session.key.persistedValue] ?? (session.provider == .codex ? values[session.sessionId] : nil)
 }
 
@@ -195,9 +198,11 @@ func elapsedSeconds(now: TimeInterval, startedAt: TimeInterval, pausedTotal: Tim
 /// therefore make the displayed session jump between ticks — an inherent cost of the
 /// click-to-pin model; pinning is the escape hatch when stable focus is needed.
 /// Pure.
-func selectDisplay(pinned: String?, sessions: [SessionState], now: TimeInterval, doneShownAt: [String: TimeInterval] = [:]) -> SessionState? {
+func selectDisplay(pinned: String?, sessions: [SessionState], now: TimeInterval,
+                   terminalShownAt: [String: TimeInterval] = [:]) -> SessionState? {
     let alive = sessions.filter {
-        $0.isAlive(now: now) && $0.isRenderable(now: now, doneShownAt: doneTimestamp(for: $0, in: doneShownAt))
+        $0.isAlive(now: now) && $0.isRenderable(
+            now: now, terminalShownAt: terminalTimestamp(for: $0, in: terminalShownAt))
     }
     if let match = alive.first(where: { pinnedSessionMatches(pinned, $0) }) {
         return match
@@ -206,13 +211,14 @@ func selectDisplay(pinned: String?, sessions: [SessionState], now: TimeInterval,
 }
 
 /// Global state for provider-independent outputs such as GeorgeLight. The caller may
-/// pre-filter owner liveness; this function owns provider filtering, staleness, Done's
-/// brief visibility window, and cross-session priority.
+/// pre-filter owner liveness; this function owns provider filtering, staleness, the
+/// Done/Error terminal visibility window, and cross-session priority.
 func arbitrateAgentState(enabledProviders: Set<AgentProvider>, sessions: [SessionState],
-                         now: TimeInterval, doneShownAt: [String: TimeInterval] = [:]) -> AgentState {
+                         now: TimeInterval, terminalShownAt: [String: TimeInterval] = [:]) -> AgentState {
     sessions.lazy
         .filter { enabledProviders.contains($0.provider) && $0.isAlive(now: now) }
-        .filter { $0.isRenderable(now: now, doneShownAt: doneTimestamp(for: $0, in: doneShownAt)) }
+        .filter { $0.isRenderable(
+            now: now, terminalShownAt: terminalTimestamp(for: $0, in: terminalShownAt)) }
         .map(\.normalizedState)
         .max() ?? .idle
 }

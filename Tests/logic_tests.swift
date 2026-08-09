@@ -75,15 +75,21 @@ let sC = SessionState(state: "idle", label: "", tool: "", project: "C", sessionI
 let doneRecent = SessionState(state: "done", label: "Done", tool: "", project: "D", sessionId: "done-recent", transcript: "", startedAt: 0, pausedTotal: 0, pauseStart: 0, ts: now - 1)
 let doneExpired = SessionState(state: "done", label: "Done", tool: "", project: "D", sessionId: "done-expired", transcript: "", startedAt: 0, pausedTotal: 0, pauseStart: 0, ts: now - 1)
 let doneStaleNoSentinel = SessionState(state: "done", label: "Done", tool: "", project: "D", sessionId: "done-stale", transcript: "", startedAt: 0, pausedTotal: 0, pauseStart: 0, ts: now - 3)
+let errorRecent = SessionState(state: "error", label: "Error", tool: "", project: "E", sessionId: "error-recent", transcript: "", startedAt: 0, pausedTotal: 0, pauseStart: 0, ts: now - 1)
+let errorExpired = SessionState(state: "error", label: "Error", tool: "", project: "E", sessionId: "error-expired", transcript: "", startedAt: 0, pausedTotal: 0, pauseStart: 0, ts: now - 3)
 
 eq(selectDisplay(pinned: nil, sessions: [sA, sB], now: now)?.sessionId, "b", "most recent wins when no pin")
 eq(selectDisplay(pinned: "a", sessions: [sA, sB], now: now)?.sessionId, "a", "pinned wins when alive")
 eq(selectDisplay(pinned: "c", sessions: [sA, sB, sC], now: now)?.sessionId, "b", "stale pinned falls back to recent alive")
 eq(selectDisplay(pinned: nil, sessions: [sC], now: now).map { $0.sessionId }, .none, "only stale -> nil")
-eq(selectDisplay(pinned: nil, sessions: [sA, doneExpired], now: now, doneShownAt: ["done-expired": now - 3])?.sessionId, "a", "expired recent done falls back to older active session")
-eq(selectDisplay(pinned: nil, sessions: [sA, doneRecent], now: now, doneShownAt: ["done-recent": now - 1])?.sessionId, "done-recent", "non-expired done still wins by recency")
-eq(selectDisplay(pinned: "done-expired", sessions: [sA, doneExpired], now: now, doneShownAt: ["done-expired": now - 3])?.sessionId, "a", "pinned expired done falls back to active session")
+eq(selectDisplay(pinned: nil, sessions: [sA, doneExpired], now: now, terminalShownAt: ["done-expired": now - 3])?.sessionId, "a", "expired recent done falls back to older active session")
+eq(selectDisplay(pinned: nil, sessions: [sA, doneRecent], now: now, terminalShownAt: ["done-recent": now - 1])?.sessionId, "done-recent", "non-expired done still wins by recency")
+eq(selectDisplay(pinned: "done-expired", sessions: [sA, doneExpired], now: now, terminalShownAt: ["done-expired": now - 3])?.sessionId, "a", "pinned expired done falls back to active session")
 eq(selectDisplay(pinned: nil, sessions: [sA, doneStaleNoSentinel], now: now)?.sessionId, "a", "done without sentinel uses state timestamp and does not replay after window")
+eq(selectDisplay(pinned: nil, sessions: [sA, errorRecent], now: now)?.sessionId,
+   "error-recent", "recent error is renderable")
+eq(selectDisplay(pinned: nil, sessions: [sA, errorExpired], now: now)?.sessionId,
+   "a", "expired error falls back to active session")
 
 // ---- provider-independent arbitration and composite identities ----
 var claudeWorking = sA
@@ -105,9 +111,17 @@ claudeApproval.state = "waitingApproval"
 claudeApproval.ts = now
 var codexDone = doneRecent
 codexDone.provider = .codex
+var claudeError = errorRecent
+claudeError.provider = .claude
 eq(arbitrateAgentState(enabledProviders: [.codex, .claude],
                        sessions: [codexSameId, claudeApproval, codexDone], now: now),
    .waitingApproval, "approval wins across providers")
+eq(arbitrateAgentState(enabledProviders: [.codex, .claude],
+                       sessions: [codexSameId, claudeError, codexDone], now: now),
+   .error, "error wins over working and done across providers")
+eq(arbitrateAgentState(enabledProviders: [.codex, .claude],
+                       sessions: [claudeApproval, claudeError], now: now),
+   .waitingApproval, "approval wins over error")
 eq(arbitrateAgentState(enabledProviders: [.codex, .claude],
                        sessions: [codexSameId, claudeWorking, codexDone], now: now),
    .working, "working wins over done across providers")
@@ -118,6 +132,8 @@ eq(arbitrateAgentState(enabledProviders: [.codex], sessions: [doneStaleNoSentine
    .idle, "expired done arbitrates to idle")
 eq(arbitrateAgentState(enabledProviders: [.claude], sessions: [codexSameId], now: now),
    .idle, "no enabled-provider session yields idle")
+eq(arbitrateAgentState(enabledProviders: [.codex], sessions: [claudeError, codexDone], now: now),
+   .done, "disabled provider error is ignored")
 
 let providerSuiteName = "agent-provider-tests-\(UUID().uuidString)"
 let providerDefaults = UserDefaults(suiteName: providerSuiteName)!
@@ -135,6 +151,7 @@ providerDefaults.removePersistentDomain(forName: providerSuiteName)
 eq(LightState(codexState: "thinking"), .working, "thinking maps to working")
 eq(LightState(codexState: "tool"), .working, "tool maps to working")
 eq(LightState(codexState: "permission"), .waitingApproval, "permission maps to waiting approval")
+eq(LightState(codexState: "error"), .error, "error maps to error")
 eq(LightState(codexState: "done"), .done, "done maps to done")
 eq(LightState(codexState: "idle"), .idle, "idle maps to idle")
 eq(LightState(codexState: nil), .idle, "no selected session maps to idle")
@@ -143,6 +160,9 @@ eq(LightState(codexState: "future-state"), .idle, "unknown states fail safe to i
 let defaultEffects = GeorgeLightEffectConfiguration.defaults
 eq(defaultEffects.working.mode, .breath, "working uses built-in breath mode")
 eq(defaultEffects.waitingApproval.mode, .fastBlink, "approval uses built-in fast blink mode")
+eq(defaultEffects.error.color, "#FF0000", "error uses firmware red")
+eq(defaultEffects.error.mode, .fastBlink, "error uses fast blink mode")
+eq(defaultEffects.error.durationSeconds, 10, "error is a short display effect")
 eq(defaultEffects.done.mode, .solid, "done uses built-in solid mode")
 eq(defaultEffects.effect(for: .idle), nil, "idle has no display effect")
 
@@ -154,13 +174,18 @@ eq(GeorgeLightColors.firmwarePresets.map { $0.hex },
    "firmware 1.0.1 preset palette")
 eq(GeorgeLightColors.options(for: .working).first?.hex, "#4D8FFF", "working default color is first")
 eq(GeorgeLightColors.options(for: .waitingApproval).first?.hex, "#F2BA2E", "approval default color is first")
+eq(GeorgeLightColors.options(for: .error).first?.title, "Red", "error starts with firmware Red preset")
+eq(GeorgeLightColors.options(for: .error).filter { $0.hex == "#FF0000" }.count, 1,
+   "error red option is not duplicated")
 eq(GeorgeLightColors.options(for: .done).first?.hex, "#4DC766", "done default color is first")
 
 // ---- installer launch and private log helpers ----
 let oddInstaller = "/Applications/Codex \" $(touch /tmp/nope) Status Bar.app/Contents/Resources/install.js"
-let installConfig = installerLaunchConfiguration(installer: oddInstaller, environment: ["PATH": "/usr/bin"])
+let installConfig = installerLaunchConfiguration(
+    installer: oddInstaller, providers: [.claude, .codex], environment: ["PATH": "/usr/bin"])
 eq(installConfig.executablePath, "/usr/bin/env", "installer runs through env")
-eq(installConfig.arguments, ["node", oddInstaller], "installer path stays a literal argument")
+eq(installConfig.arguments, ["node", oddInstaller, "--providers=claude,codex"],
+   "installer receives a stable provider argument")
 check(!(installConfig.arguments.joined(separator: " ").contains("-lc")), "installer launch does not build a shell command")
 eq(installConfig.environment["PATH"], "/opt/homebrew/bin:/usr/local/bin:/usr/bin", "installer PATH is augmented")
 eq(shellQuoted(oddInstaller), "'/Applications/Codex \" $(touch /tmp/nope) Status Bar.app/Contents/Resources/install.js'", "manual fallback command is single-quoted")

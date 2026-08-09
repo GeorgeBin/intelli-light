@@ -82,6 +82,11 @@ process.stdin.on("end", () => {
       if (pauseStart > 0) pausedTotal += timestamp - pauseStart;
       startedAt = 0; pauseStart = 0;
       break;
+    case "stop-failure":
+      state = "error"; label = "Error";
+      if (pauseStart > 0) pausedTotal += timestamp - pauseStart;
+      startedAt = 0; pauseStart = 0;
+      break;
     default:
       return;
   }

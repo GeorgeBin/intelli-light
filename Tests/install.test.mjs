@@ -17,8 +17,11 @@ function withTempHome() {
   return { home, [Symbol.dispose]: () => fs.rmSync(home, { recursive: true, force: true }) };
 }
 
-function run(script, home) {
-  return spawnSync(process.execPath, [script], {
+function run(script, home, providers = ["codex", "claude"]) {
+  const args = script === INSTALL
+    ? [script, `--providers=${[...providers].sort().join(",")}`]
+    : [script];
+  return spawnSync(process.execPath, args, {
     env: { ...process.env, HOME: home, CODEX_STATUSBAR_TEST: "1" },
     encoding: "utf8",
   });
@@ -73,7 +76,8 @@ test("install merges our hooks and quotes interpolated paths (M6)", () => {
   assert.ok(claude.hooks.SessionStart?.length, "Claude SessionStart hook added");
   assert.ok(claude.hooks.SessionEnd?.length, "Claude SessionEnd hook added");
   assert.ok(claude.hooks.PostToolUseFailure?.length, "Claude failure hook added");
-  assert.equal(ourCommands(claude).length, 8, "all Claude status hooks present");
+  assert.ok(claude.hooks.StopFailure?.length, "Claude StopFailure hook added");
+  assert.equal(ourCommands(claude).length, 9, "all Claude status hooks present");
 });
 
 test("install is idempotent and preserves unrelated hooks", () => {
@@ -106,7 +110,65 @@ test("Claude install preserves top-level settings and unrelated matcher groups",
   assert.deepEqual(settings.permissions, original.permissions);
   assert.ok(settings.hooks.PreToolUse.some((entry) =>
     entry.matcher === "Bash" && entry.hooks.some((hook) => hook.command === "echo third-party")));
-  assert.equal(ourCommands(settings).length, 8, "Claude hooks are idempotent");
+  assert.equal(ourCommands(settings).length, 9, "Claude hooks are idempotent");
+});
+
+test("provider arguments install only enabled hooks and do not create disabled config", () => {
+  using h = withTempHome();
+  assert.equal(run(INSTALL, h.home, ["codex"]).status, 0);
+  assert.ok(ourCommands(readHooks(h.home)).length > 0, "Codex hooks installed");
+  assert.ok(!fs.existsSync(path.join(h.home, ".claude", "settings.json")),
+    "disabled Claude config is not created");
+});
+
+test("disabled provider config without our hooks is left byte-for-byte untouched", () => {
+  using h = withTempHome();
+  const claudeDir = seedClaudeSettings(h.home, {
+    theme: "dark",
+    hooks: { Stop: [{ hooks: [{ type: "command", command: "echo untouched" }] }] },
+  });
+  const settingsPath = path.join(claudeDir, "settings.json");
+  const before = fs.readFileSync(settingsPath);
+  assert.equal(run(INSTALL, h.home, ["codex"]).status, 0);
+  assert.deepEqual(fs.readFileSync(settingsPath), before);
+  assert.ok(!fs.existsSync(settingsPath + ".bak-statusbar"), "no backup needed without a modification");
+});
+
+test("provider reconciliation removes only disabled provider hooks", () => {
+  using h = withTempHome();
+  seedHooks(h.home, OTHER_HOOKS);
+  seedClaudeSettings(h.home, {
+    theme: "dark",
+    hooks: { Stop: [{ hooks: [{ type: "command", command: "echo claude-other" }] }] },
+  });
+  assert.equal(run(INSTALL, h.home).status, 0);
+
+  assert.equal(run(INSTALL, h.home, ["codex"]).status, 0);
+  assert.ok(ourCommands(readHooks(h.home)).length > 0, "enabled Codex hooks remain");
+  let claude = readClaudeSettings(h.home);
+  assert.equal(ourCommands(claude).length, 0, "disabled Claude hooks removed");
+  assert.ok(!claude.hooks.SessionStart, "disabled Claude SessionStart no longer launches app");
+  assert.ok(claude.hooks.Stop.flatMap((entry) => entry.hooks)
+    .some((hook) => hook.command === "echo claude-other"), "unrelated Claude hook remains");
+
+  assert.equal(run(INSTALL, h.home, ["claude"]).status, 0);
+  const codex = readHooks(h.home);
+  assert.equal(ourCommands(codex).length, 0, "disabled Codex hooks removed");
+  assert.ok(codex.hooks.Stop.flatMap((entry) => entry.hooks)
+    .some((hook) => hook.command === "echo other"), "unrelated Codex hook remains");
+  claude = readClaudeSettings(h.home);
+  assert.equal(ourCommands(claude).length, 9, "re-enabled Claude hooks installed immediately");
+});
+
+test("installer rejects missing, empty, and unknown provider arguments", () => {
+  using h = withTempHome();
+  const invoke = (argument) => spawnSync(process.execPath,
+    argument === undefined ? [INSTALL] : [INSTALL, argument],
+    { env: { ...process.env, HOME: h.home }, encoding: "utf8" });
+  assert.notEqual(invoke(undefined).status, 0);
+  assert.notEqual(invoke("--providers=").status, 0);
+  assert.notEqual(invoke("--providers=codex,other").status, 0);
+  assert.ok(!fs.existsSync(path.join(h.home, ".codex")), "invalid arguments make no changes");
 });
 
 test("install creates the .bak-statusbar backup exactly once", () => {
