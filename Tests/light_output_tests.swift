@@ -22,12 +22,14 @@ final class MockURLProtocol: URLProtocol {
 
     override func stopLoading() {}
 
-    func succeed() {
-        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+    func respond(statusCode: Int) {
+        let response = HTTPURLResponse(url: request.url!, statusCode: statusCode, httpVersion: nil, headerFields: nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data("{\"ok\":true}".utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
+
+    func succeed() { respond(statusCode: 200) }
 
     func fail() {
         client?.urlProtocol(self, didFailWithError: URLError(.cannotConnectToHost))
@@ -80,6 +82,12 @@ struct LightOutputTests {
         testDisplayPayloadAndDedupe()
         testLatestStateWaitsForOlderRequest()
         testFailureDoesNotBlockLaterClear()
+        testWorkingLeaseRefreshes()
+        testNetworkFailureRetries()
+        testHTTP409Retries()
+        testClearFailureRetries()
+        testStateChangeInvalidatesPendingRetry()
+        testIdleCancelsWorkingLease()
 
         if failures == 0 { print("ALL OK"); exit(0) }
         print("\(failures) FAILED"); exit(1)
@@ -198,5 +206,153 @@ struct LightOutputTests {
         eq(clear?.httpMethod, "POST", "clear method")
         eq(clear?.url?.path, "/api/v1/codex/clear", "clear path")
         eq(clear?.httpBody, nil, "clear sends no guessed JSON fields")
+    }
+
+    static func testWorkingLeaseRefreshes() {
+        let initial = DispatchSemaphore(value: 0)
+        let refreshed = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var requests: [URLRequest] = []
+        setHandler { proto, request in
+            lock.lock(); requests.append(request); let count = requests.count; lock.unlock()
+            proto.succeed()
+            if count == 1 { initial.signal() }
+            if count == 2 { refreshed.signal() }
+        }
+
+        let output = GeorgeLightHttpOutput(
+            baseURL: URL(string: "http://lamp.local")!, session: makeSession(),
+            leaseRefreshInterval: 0.05, retryDelays: [0.02])
+        output.setLightState(.working)
+        wait(initial, "initial working lease was not sent")
+        wait(refreshed, "working lease was not refreshed")
+
+        lock.lock(); let captured = Array(requests.prefix(2)); lock.unlock()
+        eq(captured.count, 2, "working sends a lease refresh")
+        check(captured.allSatisfy { $0.url?.path == "/api/v1/codex/display" },
+              "lease refresh uses display endpoint")
+        check(captured.allSatisfy { payload($0)["color"] as? String == "#4D8FFF" },
+              "lease refresh preserves working state")
+    }
+
+    static func testNetworkFailureRetries() {
+        let retried = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var count = 0
+        setHandler { proto, _ in
+            lock.lock(); count += 1; let current = count; lock.unlock()
+            if current == 1 { proto.fail() }
+            else { proto.succeed(); retried.signal() }
+        }
+
+        let output = GeorgeLightHttpOutput(
+            baseURL: URL(string: "http://lamp.local")!, session: makeSession(),
+            leaseRefreshInterval: 10, retryDelays: [0.02])
+        output.setLightState(.working)
+        wait(retried, "network failure was not retried")
+        lock.lock(); let total = count; lock.unlock()
+        eq(total, 2, "network failure retries once before success")
+    }
+
+    static func testHTTP409Retries() {
+        let retried = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var count = 0
+        setHandler { proto, _ in
+            lock.lock(); count += 1; let current = count; lock.unlock()
+            if current == 1 { proto.respond(statusCode: 409) }
+            else { proto.succeed(); retried.signal() }
+        }
+
+        let output = GeorgeLightHttpOutput(
+            baseURL: URL(string: "http://lamp.local")!, session: makeSession(),
+            leaseRefreshInterval: 10, retryDelays: [0.02])
+        output.setLightState(.waitingApproval)
+        wait(retried, "HTTP 409 was not retried")
+        lock.lock(); let total = count; lock.unlock()
+        eq(total, 2, "non-2xx response retries before success")
+    }
+
+    static func testClearFailureRetries() {
+        let retried = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var requests: [URLRequest] = []
+        setHandler { proto, request in
+            lock.lock(); requests.append(request); let count = requests.count; lock.unlock()
+            if count == 1 { proto.respond(statusCode: 500) }
+            else { proto.succeed(); retried.signal() }
+        }
+
+        let output = GeorgeLightHttpOutput(
+            baseURL: URL(string: "http://lamp.local")!, session: makeSession(),
+            leaseRefreshInterval: 10, retryDelays: [0.02])
+        output.setLightState(.idle)
+        wait(retried, "failed clear was not retried")
+
+        lock.lock(); let captured = requests; lock.unlock()
+        eq(captured.count, 2, "clear retries after HTTP 500")
+        check(captured.allSatisfy { $0.url?.path == "/api/v1/codex/clear" },
+              "clear retry stays on clear endpoint")
+    }
+
+    static func testStateChangeInvalidatesPendingRetry() {
+        let firstFailed = DispatchSemaphore(value: 0)
+        let latestSent = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var requests: [URLRequest] = []
+        setHandler { proto, request in
+            lock.lock(); requests.append(request); let count = requests.count; lock.unlock()
+            if count == 1 {
+                proto.fail()
+                firstFailed.signal()
+            } else {
+                proto.succeed()
+                latestSent.signal()
+            }
+        }
+
+        let output = GeorgeLightHttpOutput(
+            baseURL: URL(string: "http://lamp.local")!, session: makeSession(),
+            leaseRefreshInterval: 10, retryDelays: [0.2])
+        output.setLightState(.working)
+        wait(firstFailed, "initial working request did not fail")
+        Thread.sleep(forTimeInterval: 0.05)
+        output.setLightState(.waitingApproval)
+        wait(latestSent, "latest state was not sent during retry wait")
+        Thread.sleep(forTimeInterval: 0.25)
+
+        lock.lock(); let captured = requests; lock.unlock()
+        eq(captured.count, 2, "stale working retry is cancelled")
+        if captured.count == 2 {
+            eq(payload(captured[1])["color"] as? String, "#F2BA2E",
+               "only latest waiting approval state is delivered")
+        }
+    }
+
+    static func testIdleCancelsWorkingLease() {
+        let workingSent = DispatchSemaphore(value: 0)
+        let clearSent = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var requests: [URLRequest] = []
+        setHandler { proto, request in
+            lock.lock(); requests.append(request); let count = requests.count; lock.unlock()
+            proto.succeed()
+            if count == 1 { workingSent.signal() }
+            if count == 2 { clearSent.signal() }
+        }
+
+        let output = GeorgeLightHttpOutput(
+            baseURL: URL(string: "http://lamp.local")!, session: makeSession(),
+            leaseRefreshInterval: 0.2, retryDelays: [0.02])
+        output.setLightState(.working)
+        wait(workingSent, "working request was not sent")
+        Thread.sleep(forTimeInterval: 0.05)
+        output.setLightState(.idle)
+        wait(clearSent, "idle clear was not sent")
+        Thread.sleep(forTimeInterval: 0.25)
+
+        lock.lock(); let captured = requests; lock.unlock()
+        eq(captured.count, 2, "idle prevents old working lease refresh")
+        eq(captured.last?.url?.path, "/api/v1/codex/clear", "idle remains the latest request")
     }
 }
