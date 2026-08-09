@@ -88,6 +88,10 @@ struct LightOutputTests {
         testClearFailureRetries()
         testStateChangeInvalidatesPendingRetry()
         testIdleCancelsWorkingLease()
+        testDisabledOutputRetainsLatestState()
+        testDisableClearsOnceWithoutRetryOrLease()
+        testDisableCancelsPendingRetry()
+        testBaseURLChangeUsesNewAddressImmediately()
 
         if failures == 0 { print("ALL OK"); exit(0) }
         print("\(failures) FAILED"); exit(1)
@@ -101,6 +105,14 @@ struct LightOutputTests {
 
         let suite = "light-output-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
+        check(GeorgeLightConfiguration(userDefaults: defaults).enabled,
+              "GeorgeLight defaults to enabled")
+        defaults.set(false, forKey: GeorgeLightConfiguration.enabledDefaultsKey)
+        check(!GeorgeLightConfiguration(userDefaults: defaults).enabled,
+              "disabled setting is restored")
+        defaults.set(true, forKey: GeorgeLightConfiguration.enabledDefaultsKey)
+        check(GeorgeLightConfiguration(userDefaults: defaults).enabled,
+              "enabled setting is restored")
         defaults.set("http://192.168.1.45", forKey: GeorgeLightConfiguration.baseURLDefaultsKey)
         eq(GeorgeLightConfiguration(userDefaults: defaults).baseURL.absoluteString,
            "http://192.168.1.45", "UserDefaults overrides mDNS base URL")
@@ -354,5 +366,127 @@ struct LightOutputTests {
         lock.lock(); let captured = requests; lock.unlock()
         eq(captured.count, 2, "idle prevents old working lease refresh")
         eq(captured.last?.url?.path, "/api/v1/codex/clear", "idle remains the latest request")
+    }
+
+    static func testDisabledOutputRetainsLatestState() {
+        let enabledRequest = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var requests: [URLRequest] = []
+        setHandler { proto, request in
+            lock.lock(); requests.append(request); lock.unlock()
+            proto.succeed()
+            enabledRequest.signal()
+        }
+
+        let output = GeorgeLightHttpOutput(
+            baseURL: URL(string: "http://lamp.local")!, enabled: false,
+            session: makeSession(), leaseRefreshInterval: 10, retryDelays: [0.02])
+        output.setLightState(.working)
+        output.setLightState(.waitingApproval)
+        Thread.sleep(forTimeInterval: 0.1)
+        lock.lock(); let disabledCount = requests.count; lock.unlock()
+        eq(disabledCount, 0, "disabled output sends no state requests")
+
+        output.setEnabled(true)
+        wait(enabledRequest, "re-enabled output did not immediately sync")
+        lock.lock(); let captured = requests; lock.unlock()
+        eq(captured.count, 1, "re-enable sends one latest state")
+        if let request = captured.first {
+            eq(payload(request)["color"] as? String, "#F2BA2E",
+               "re-enable sends latest waiting approval state")
+        }
+    }
+
+    static func testDisableClearsOnceWithoutRetryOrLease() {
+        let workingSent = DispatchSemaphore(value: 0)
+        let clearFailed = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var requests: [URLRequest] = []
+        setHandler { proto, request in
+            lock.lock(); requests.append(request); let count = requests.count; lock.unlock()
+            if count == 1 {
+                proto.succeed()
+                workingSent.signal()
+            } else {
+                proto.respond(statusCode: 500)
+                clearFailed.signal()
+            }
+        }
+
+        let output = GeorgeLightHttpOutput(
+            baseURL: URL(string: "http://lamp.local")!, enabled: true,
+            session: makeSession(), leaseRefreshInterval: 0.2, retryDelays: [0.05])
+        output.setLightState(.working)
+        wait(workingSent, "working request was not sent before disable")
+        output.setEnabled(false)
+        wait(clearFailed, "disable did not attempt clear")
+        Thread.sleep(forTimeInterval: 0.3)
+
+        lock.lock(); let captured = requests; lock.unlock()
+        eq(captured.count, 2, "disable clear failure is not retried and lease stays cancelled")
+        eq(captured.last?.url?.path, "/api/v1/codex/clear", "disable sends clear once")
+    }
+
+    static func testDisableCancelsPendingRetry() {
+        let workingFailed = DispatchSemaphore(value: 0)
+        let clearSent = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var requests: [URLRequest] = []
+        setHandler { proto, request in
+            lock.lock(); requests.append(request); let count = requests.count; lock.unlock()
+            if count == 1 {
+                proto.fail()
+                workingFailed.signal()
+            } else {
+                proto.succeed()
+                clearSent.signal()
+            }
+        }
+
+        let output = GeorgeLightHttpOutput(
+            baseURL: URL(string: "http://lamp.local")!, enabled: true,
+            session: makeSession(), leaseRefreshInterval: 10, retryDelays: [0.2])
+        output.setLightState(.working)
+        wait(workingFailed, "working request did not fail")
+        Thread.sleep(forTimeInterval: 0.05)
+        output.setEnabled(false)
+        wait(clearSent, "disable did not clear during retry wait")
+        Thread.sleep(forTimeInterval: 0.25)
+
+        lock.lock(); let captured = requests; lock.unlock()
+        eq(captured.count, 2, "disabled output does not run stale retry")
+        eq(captured.last?.url?.path, "/api/v1/codex/clear", "clear is final request after disable")
+    }
+
+    static func testBaseURLChangeUsesNewAddressImmediately() {
+        let oldFailed = DispatchSemaphore(value: 0)
+        let newSent = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var requests: [URLRequest] = []
+        setHandler { proto, request in
+            lock.lock(); requests.append(request); let count = requests.count; lock.unlock()
+            if count == 1 {
+                proto.fail()
+                oldFailed.signal()
+            } else {
+                proto.succeed()
+                newSent.signal()
+            }
+        }
+
+        let output = GeorgeLightHttpOutput(
+            baseURL: URL(string: "http://old-lamp.local")!, enabled: true,
+            session: makeSession(), leaseRefreshInterval: 10, retryDelays: [0.2])
+        output.setLightState(.working)
+        wait(oldFailed, "old address request did not fail")
+        Thread.sleep(forTimeInterval: 0.05)
+        output.setBaseURL(URL(string: "http://new-lamp.local")!)
+        wait(newSent, "address change did not immediately sync current state")
+        Thread.sleep(forTimeInterval: 0.25)
+
+        lock.lock(); let captured = requests; lock.unlock()
+        eq(captured.count, 2, "old-address retry is cancelled")
+        eq(captured.first?.url?.host, "old-lamp.local", "first request uses old address")
+        eq(captured.last?.url?.host, "new-lamp.local", "next request uses new address")
     }
 }

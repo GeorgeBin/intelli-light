@@ -119,11 +119,13 @@ swiftc Tests/logic_tests.swift Sources/SessionState.swift Sources/AppSupport.swi
 swiftc Tests/light_output_tests.swift Sources/LightOutput.swift Sources/GeorgeLightHttpOutput.swift -o /tmp/light-output-tests && /tmp/light-output-tests
 ```
 
-GeorgeLight output defaults to `http://george-light-zero.local`. To use a different
-GeorgeLight 1.0.1 device address, set `georgeLightBaseURL` for the existing app domain
-and restart the app:
+GeorgeLight output is enabled by default and uses `http://george-light-zero.local`.
+Use the `GeorgeLight` menu item to enable or disable output, and
+`Set GeorgeLight Address...` to change the device address immediately. The settings are
+stored under the existing app domain and can also be managed from Terminal:
 
 ```bash
+defaults write io.github.kiwigaze.codexstatusbar georgeLightEnabled -bool true
 defaults write io.github.kiwigaze.codexstatusbar georgeLightBaseURL "http://192.168.1.45"
 ```
 

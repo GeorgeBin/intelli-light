@@ -20,6 +20,11 @@ protocol LightOutput: AnyObject {
     func setLightState(_ state: LightState)
 }
 
+protocol ConfigurableLightOutput: LightOutput {
+    func setEnabled(_ enabled: Bool)
+    func setBaseURL(_ baseURL: URL)
+}
+
 struct GeorgeLightEffect: Equatable {
     let color: String
     let modeID: Int
@@ -47,12 +52,16 @@ enum GeorgeLightEffects {
 }
 
 struct GeorgeLightConfiguration {
+    static let enabledDefaultsKey = "georgeLightEnabled"
     static let baseURLDefaultsKey = "georgeLightBaseURL"
     static let defaultBaseURL = URL(string: "http://george-light-zero.local")!
 
+    let enabled: Bool
     let baseURL: URL
 
     init(userDefaults: UserDefaults = .standard) {
+        self.enabled = userDefaults.object(forKey: Self.enabledDefaultsKey) == nil
+            ? true : userDefaults.bool(forKey: Self.enabledDefaultsKey)
         let configured = userDefaults.string(forKey: Self.baseURLDefaultsKey)
         self.baseURL = configured.flatMap(Self.validBaseURL) ?? Self.defaultBaseURL
     }

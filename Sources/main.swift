@@ -5,7 +5,9 @@ import Cocoa
 
 final class StatusController: NSObject, NSMenuDelegate {
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    let lightOutput: LightOutput = GeorgeLightHttpOutput()
+    let lightOutput: ConfigurableLightOutput
+    var georgeLightEnabled: Bool
+    var georgeLightBaseURL: URL
     let statesDir = (NSHomeDirectory() as NSString).appendingPathComponent(".codex/statusbar/states.d")
     let legacyStatePath = (NSHomeDirectory() as NSString).appendingPathComponent(".codex/statusbar/state.json")
     let sessionsDir = (NSHomeDirectory() as NSString).appendingPathComponent(".codex/statusbar/sessions.d")
@@ -48,6 +50,10 @@ final class StatusController: NSObject, NSMenuDelegate {
     var frameCount: Int { max(1, frames.count) }
 
     override init() {
+        let georgeLight = GeorgeLightConfiguration()
+        georgeLightEnabled = georgeLight.enabled
+        georgeLightBaseURL = georgeLight.baseURL
+        lightOutput = GeorgeLightHttpOutput(baseURL: georgeLight.baseURL, enabled: georgeLight.enabled)
         super.init()
         let d = UserDefaults.standard
         if d.object(forKey: "showTimer") != nil { showTimer = d.bool(forKey: "showTimer") }
@@ -134,6 +140,17 @@ final class StatusController: NSObject, NSMenuDelegate {
         timerItem.target = self
         timerItem.state = showTimer ? .on : .off
         menu.addItem(timerItem)
+
+        menu.addItem(.separator())
+        let georgeLightItem = NSMenuItem(title: "GeorgeLight", action: #selector(toggleGeorgeLight), keyEquivalent: "")
+        georgeLightItem.target = self
+        georgeLightItem.state = georgeLightEnabled ? .on : .off
+        menu.addItem(georgeLightItem)
+
+        let addressItem = NSMenuItem(title: "Set GeorgeLight Address...",
+                                     action: #selector(setGeorgeLightAddress), keyEquivalent: "")
+        addressItem.target = self
+        menu.addItem(addressItem)
 
         menu.addItem(.separator())
         for (sys, name) in [(false, "Accent"), (true, "System")] {
@@ -239,6 +256,39 @@ final class StatusController: NSObject, NSMenuDelegate {
         showTimer.toggle()
         UserDefaults.standard.set(showTimer, forKey: "showTimer")
         applyTitle()
+    }
+
+    @objc func toggleGeorgeLight() {
+        georgeLightEnabled.toggle()
+        UserDefaults.standard.set(georgeLightEnabled, forKey: GeorgeLightConfiguration.enabledDefaultsKey)
+        lightOutput.setEnabled(georgeLightEnabled)
+    }
+
+    @objc func setGeorgeLightAddress() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Set GeorgeLight Address"
+        alert.informativeText = "Enter an HTTP root address, for example http://george-light-zero.local"
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+        input.stringValue = georgeLightBaseURL.absoluteString
+        input.placeholderString = GeorgeLightConfiguration.defaultBaseURL.absoluteString
+        alert.accessoryView = input
+
+        while alert.runModal() == .alertFirstButtonReturn {
+            if let url = GeorgeLightConfiguration.validBaseURL(input.stringValue) {
+                georgeLightBaseURL = url
+                UserDefaults.standard.set(url.absoluteString,
+                                          forKey: GeorgeLightConfiguration.baseURLDefaultsKey)
+                lightOutput.setBaseURL(url)
+                return
+            }
+            NSSound.beep()
+            alert.informativeText = "Enter a valid HTTP root address without a path, query, or fragment."
+            input.selectText(nil)
+        }
     }
 
     @objc func chooseColor(_ sender: NSMenuItem) {

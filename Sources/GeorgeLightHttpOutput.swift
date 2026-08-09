@@ -1,13 +1,14 @@
 import Foundation
 
-final class GeorgeLightHttpOutput: LightOutput {
+final class GeorgeLightHttpOutput: ConfigurableLightOutput {
     private static let displayPath = "api/v1/codex/display"
     private static let clearPath = "api/v1/codex/clear"
     private static let requestTimeout: TimeInterval = 3
     private static let defaultLeaseRefreshInterval: TimeInterval = 240
     private static let defaultRetryDelays: [TimeInterval] = [2, 5, 10, 30, 60]
 
-    private let baseURL: URL
+    private var baseURL: URL
+    private var enabled: Bool
     private let session: URLSession
     private let leaseRefreshInterval: TimeInterval
     private let retryDelays: [TimeInterval]
@@ -17,12 +18,15 @@ final class GeorgeLightHttpOutput: LightOutput {
     private var requestInFlight = false
     private var retryAttempt = 0
     private var scheduledWork: DispatchWorkItem?
+    private var pendingDisableClearURL: URL?
 
     init(baseURL: URL = GeorgeLightConfiguration().baseURL,
+         enabled: Bool = true,
          session: URLSession? = nil,
          leaseRefreshInterval: TimeInterval = GeorgeLightHttpOutput.defaultLeaseRefreshInterval,
          retryDelays: [TimeInterval] = GeorgeLightHttpOutput.defaultRetryDelays) {
         self.baseURL = baseURL
+        self.enabled = enabled
         self.leaseRefreshInterval = max(0, leaseRefreshInterval)
         self.retryDelays = retryDelays.isEmpty ? Self.defaultRetryDelays : retryDelays.map { max(0, $0) }
         if let session {
@@ -50,16 +54,65 @@ final class GeorgeLightHttpOutput: LightOutput {
         }
     }
 
+    func setEnabled(_ enabled: Bool) {
+        queue.async { [weak self] in
+            guard let self, self.enabled != enabled else { return }
+            self.enabled = enabled
+            self.desiredGeneration &+= 1
+            self.retryAttempt = 0
+            self.scheduledWork?.cancel()
+            self.scheduledWork = nil
+            if enabled {
+                self.pendingDisableClearURL = nil
+            } else {
+                // Clear is best-effort on disable: send it once after any current
+                // request finishes, and never attach retry/lease behavior to it.
+                self.pendingDisableClearURL = self.baseURL
+            }
+            self.startLatestRequestIfNeeded()
+        }
+    }
+
+    func setBaseURL(_ baseURL: URL) {
+        queue.async { [weak self] in
+            guard let self, self.baseURL != baseURL else { return }
+            self.baseURL = baseURL
+            self.desiredGeneration &+= 1
+            self.retryAttempt = 0
+            self.scheduledWork?.cancel()
+            self.scheduledWork = nil
+            if self.enabled { self.startLatestRequestIfNeeded() }
+        }
+    }
+
     private func startLatestRequestIfNeeded() {
-        guard !requestInFlight, let state = desiredState,
-              let request = makeRequest(for: state) else { return }
-        let generation = desiredGeneration
+        guard !requestInFlight else { return }
+        if let clearURL = pendingDisableClearURL {
+            pendingDisableClearURL = nil
+            startRequest(state: .idle, baseURL: clearURL,
+                         generation: desiredGeneration, disableClear: true)
+            return
+        }
+        guard enabled, let state = desiredState else { return }
+        startRequest(state: state, baseURL: baseURL,
+                     generation: desiredGeneration, disableClear: false)
+    }
+
+    private func startRequest(state: LightState, baseURL: URL,
+                              generation: UInt64, disableClear: Bool) {
+        guard let request = makeRequest(for: state, baseURL: baseURL) else { return }
         requestInFlight = true
         session.dataTask(with: request) { [weak self] _, response, error in
             guard let self else { return }
             self.queue.async {
                 self.requestInFlight = false
-                guard self.desiredGeneration == generation, self.desiredState == state else {
+                if disableClear {
+                    self.startLatestRequestIfNeeded()
+                    return
+                }
+                guard self.enabled,
+                      self.desiredGeneration == generation,
+                      self.desiredState == state else {
                     // State changed while this request was running. Ignore its result
                     // and deliver only the newest desired state.
                     self.startLatestRequestIfNeeded()
@@ -88,6 +141,7 @@ final class GeorgeLightHttpOutput: LightOutput {
         scheduledWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self,
+                  self.enabled,
                   self.desiredGeneration == generation,
                   self.desiredState == state else { return }
             self.scheduledWork = nil
@@ -101,7 +155,7 @@ final class GeorgeLightHttpOutput: LightOutput {
         state == .working || state == .waitingApproval
     }
 
-    private func makeRequest(for state: LightState) -> URLRequest? {
+    private func makeRequest(for state: LightState, baseURL: URL) -> URLRequest? {
         let path = state == .idle ? Self.clearPath : Self.displayPath
         var request = URLRequest(url: baseURL.appendingPathComponent(path))
         request.httpMethod = "POST"
