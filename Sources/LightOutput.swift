@@ -14,6 +14,15 @@ enum LightState: Equatable {
         default: self = .idle
         }
     }
+
+    var settingsTitle: String {
+        switch self {
+        case .working: return "Working"
+        case .waitingApproval: return "Waiting Approval"
+        case .done: return "Done"
+        case .idle: return "Idle"
+        }
+    }
 }
 
 protocol LightOutput: AnyObject {
@@ -23,30 +32,84 @@ protocol LightOutput: AnyObject {
 protocol ConfigurableLightOutput: LightOutput {
     func setEnabled(_ enabled: Bool)
     func setBaseURL(_ baseURL: URL)
+    func setEffect(_ effect: GeorgeLightEffectSettings, for state: LightState)
 }
 
-struct GeorgeLightEffect: Equatable {
-    let color: String
-    let modeID: Int
+enum GeorgeLightMode: Int, CaseIterable, Equatable {
+    case solid = 1
+    case blink = 2
+    case breath = 3
+    case fastBlink = 4
+
+    var title: String {
+        switch self {
+        case .solid: return "Solid"
+        case .blink: return "Blink"
+        case .breath: return "Breath"
+        case .fastBlink: return "Fast Blink"
+        }
+    }
+}
+
+struct GeorgeLightColorOption: Equatable {
+    let title: String
+    let hex: String
+}
+
+enum GeorgeLightColors {
+    // Exact preset palette from GeorgeLight Zero 1.0.1 firmware/web/index.html.
+    static let firmwarePresets: [GeorgeLightColorOption] = [
+        GeorgeLightColorOption(title: "Red", hex: "#FF0000"),
+        GeorgeLightColorOption(title: "Green", hex: "#00FF00"),
+        GeorgeLightColorOption(title: "Yellow", hex: "#FFFF00"),
+        GeorgeLightColorOption(title: "White", hex: "#FFFFFF"),
+        GeorgeLightColorOption(title: "Black", hex: "#000000"),
+        GeorgeLightColorOption(title: "Orange", hex: "#FF8000"),
+        GeorgeLightColorOption(title: "Blue", hex: "#0000FF"),
+        GeorgeLightColorOption(title: "Purple", hex: "#8000FF"),
+    ]
+
+    static func options(for state: LightState) -> [GeorgeLightColorOption] {
+        guard let effect = GeorgeLightEffectConfiguration.defaults.effect(for: state) else { return [] }
+        return [GeorgeLightColorOption(title: "Default", hex: effect.color)] + firmwarePresets
+    }
+}
+
+struct GeorgeLightEffectSettings: Equatable {
+    var color: String
+    var mode: GeorgeLightMode
     let durationSeconds: Int
     let brightness: Int
 }
 
-enum GeorgeLightEffects {
-    // GeorgeLight 1.0.1 built-in modes: 1 = solid, 3 = breath, 4 = fast blink.
-    static let working = GeorgeLightEffect(
-        color: "#4D8FFF", modeID: 3, durationSeconds: 300, brightness: 70)
-    static let waitingApproval = GeorgeLightEffect(
-        color: "#F2BA2E", modeID: 4, durationSeconds: 300, brightness: 90)
-    static let done = GeorgeLightEffect(
-        color: "#4DC766", modeID: 1, durationSeconds: 10, brightness: 80)
+struct GeorgeLightEffectConfiguration: Equatable {
+    var working: GeorgeLightEffectSettings
+    var waitingApproval: GeorgeLightEffectSettings
+    var done: GeorgeLightEffectSettings
 
-    static func effect(for state: LightState) -> GeorgeLightEffect? {
+    static let defaults = GeorgeLightEffectConfiguration(
+        working: GeorgeLightEffectSettings(
+            color: "#4D8FFF", mode: .breath, durationSeconds: 300, brightness: 70),
+        waitingApproval: GeorgeLightEffectSettings(
+            color: "#F2BA2E", mode: .fastBlink, durationSeconds: 300, brightness: 90),
+        done: GeorgeLightEffectSettings(
+            color: "#4DC766", mode: .solid, durationSeconds: 10, brightness: 80))
+
+    func effect(for state: LightState) -> GeorgeLightEffectSettings? {
         switch state {
         case .working: return working
         case .waitingApproval: return waitingApproval
         case .done: return done
         case .idle: return nil
+        }
+    }
+
+    mutating func setEffect(_ effect: GeorgeLightEffectSettings, for state: LightState) {
+        switch state {
+        case .working: working = effect
+        case .waitingApproval: waitingApproval = effect
+        case .done: done = effect
+        case .idle: break
         }
     }
 }
@@ -56,14 +119,62 @@ struct GeorgeLightConfiguration {
     static let baseURLDefaultsKey = "georgeLightBaseURL"
     static let defaultBaseURL = URL(string: "http://george-light-zero.local")!
 
-    let enabled: Bool
-    let baseURL: URL
+    var enabled: Bool
+    var baseURL: URL
+    var effects: GeorgeLightEffectConfiguration
 
     init(userDefaults: UserDefaults = .standard) {
-        self.enabled = userDefaults.object(forKey: Self.enabledDefaultsKey) == nil
+        enabled = userDefaults.object(forKey: Self.enabledDefaultsKey) == nil
             ? true : userDefaults.bool(forKey: Self.enabledDefaultsKey)
         let configured = userDefaults.string(forKey: Self.baseURLDefaultsKey)
-        self.baseURL = configured.flatMap(Self.validBaseURL) ?? Self.defaultBaseURL
+        baseURL = configured.flatMap(Self.validBaseURL) ?? Self.defaultBaseURL
+        effects = .defaults
+        for state in [LightState.working, .waitingApproval, .done] {
+            guard var effect = effects.effect(for: state) else { continue }
+            if let storedColor = userDefaults.string(forKey: Self.colorDefaultsKey(for: state)),
+               let allowed = GeorgeLightColors.options(for: state).first(where: {
+                   $0.hex.caseInsensitiveCompare(storedColor) == .orderedSame
+               }) {
+                effect.color = allowed.hex
+            }
+            if userDefaults.object(forKey: Self.modeDefaultsKey(for: state)) != nil,
+               let mode = GeorgeLightMode(rawValue: userDefaults.integer(
+                   forKey: Self.modeDefaultsKey(for: state))) {
+                effect.mode = mode
+            }
+            effects.setEffect(effect, for: state)
+        }
+    }
+
+    func persistEnabled(to userDefaults: UserDefaults = .standard) {
+        userDefaults.set(enabled, forKey: Self.enabledDefaultsKey)
+    }
+
+    func persistBaseURL(to userDefaults: UserDefaults = .standard) {
+        userDefaults.set(baseURL.absoluteString, forKey: Self.baseURLDefaultsKey)
+    }
+
+    func persistEffect(for state: LightState, to userDefaults: UserDefaults = .standard) {
+        guard let effect = effects.effect(for: state), state != .idle else { return }
+        userDefaults.set(effect.color, forKey: Self.colorDefaultsKey(for: state))
+        userDefaults.set(effect.mode.rawValue, forKey: Self.modeDefaultsKey(for: state))
+    }
+
+    static func colorDefaultsKey(for state: LightState) -> String {
+        "georgeLight\(defaultsStateName(state))Color"
+    }
+
+    static func modeDefaultsKey(for state: LightState) -> String {
+        "georgeLight\(defaultsStateName(state))ModeID"
+    }
+
+    private static func defaultsStateName(_ state: LightState) -> String {
+        switch state {
+        case .working: return "Working"
+        case .waitingApproval: return "WaitingApproval"
+        case .done: return "Done"
+        case .idle: return "Idle"
+        }
     }
 
     static func validBaseURL(_ value: String) -> URL? {

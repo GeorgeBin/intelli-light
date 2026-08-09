@@ -3,11 +3,20 @@ import Cocoa
 // Reads ~/.codex/statusbar/state.json (written by Codex hooks) and renders a
 // Codex "prompt" mark + short status label in the macOS menu bar. No window, no dock icon.
 
+private struct GeorgeLightColorSelection {
+    let state: LightState
+    let color: String
+}
+
+private struct GeorgeLightModeSelection {
+    let state: LightState
+    let mode: GeorgeLightMode
+}
+
 final class StatusController: NSObject, NSMenuDelegate {
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     let lightOutput: ConfigurableLightOutput
-    var georgeLightEnabled: Bool
-    var georgeLightBaseURL: URL
+    var georgeLightConfiguration: GeorgeLightConfiguration
     let statesDir = (NSHomeDirectory() as NSString).appendingPathComponent(".codex/statusbar/states.d")
     let legacyStatePath = (NSHomeDirectory() as NSString).appendingPathComponent(".codex/statusbar/state.json")
     let sessionsDir = (NSHomeDirectory() as NSString).appendingPathComponent(".codex/statusbar/sessions.d")
@@ -51,9 +60,9 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     override init() {
         let georgeLight = GeorgeLightConfiguration()
-        georgeLightEnabled = georgeLight.enabled
-        georgeLightBaseURL = georgeLight.baseURL
-        lightOutput = GeorgeLightHttpOutput(baseURL: georgeLight.baseURL, enabled: georgeLight.enabled)
+        georgeLightConfiguration = georgeLight
+        lightOutput = GeorgeLightHttpOutput(
+            baseURL: georgeLight.baseURL, enabled: georgeLight.enabled, effects: georgeLight.effects)
         super.init()
         let d = UserDefaults.standard
         if d.object(forKey: "showTimer") != nil { showTimer = d.bool(forKey: "showTimer") }
@@ -142,15 +151,20 @@ final class StatusController: NSObject, NSMenuDelegate {
         menu.addItem(timerItem)
 
         menu.addItem(.separator())
-        let georgeLightItem = NSMenuItem(title: "GeorgeLight", action: #selector(toggleGeorgeLight), keyEquivalent: "")
+        let georgeLightItem = NSMenuItem(title: "Enable GeorgeLight",
+                                         action: #selector(toggleGeorgeLight), keyEquivalent: "")
         georgeLightItem.target = self
-        georgeLightItem.state = georgeLightEnabled ? .on : .off
+        georgeLightItem.state = georgeLightConfiguration.enabled ? .on : .off
         menu.addItem(georgeLightItem)
 
-        let addressItem = NSMenuItem(title: "Set GeorgeLight Address...",
+        let addressItem = NSMenuItem(title: "Address...",
                                      action: #selector(setGeorgeLightAddress), keyEquivalent: "")
         addressItem.target = self
         menu.addItem(addressItem)
+
+        for state in [LightState.working, .waitingApproval, .done] {
+            menu.addItem(georgeLightEffectMenuItem(for: state))
+        }
 
         menu.addItem(.separator())
         for (sys, name) in [(false, "Accent"), (true, "System")] {
@@ -259,9 +273,9 @@ final class StatusController: NSObject, NSMenuDelegate {
     }
 
     @objc func toggleGeorgeLight() {
-        georgeLightEnabled.toggle()
-        UserDefaults.standard.set(georgeLightEnabled, forKey: GeorgeLightConfiguration.enabledDefaultsKey)
-        lightOutput.setEnabled(georgeLightEnabled)
+        georgeLightConfiguration.enabled.toggle()
+        georgeLightConfiguration.persistEnabled()
+        lightOutput.setEnabled(georgeLightConfiguration.enabled)
     }
 
     @objc func setGeorgeLightAddress() {
@@ -273,15 +287,14 @@ final class StatusController: NSObject, NSMenuDelegate {
         alert.addButton(withTitle: "Cancel")
 
         let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
-        input.stringValue = georgeLightBaseURL.absoluteString
+        input.stringValue = georgeLightConfiguration.baseURL.absoluteString
         input.placeholderString = GeorgeLightConfiguration.defaultBaseURL.absoluteString
         alert.accessoryView = input
 
         while alert.runModal() == .alertFirstButtonReturn {
             if let url = GeorgeLightConfiguration.validBaseURL(input.stringValue) {
-                georgeLightBaseURL = url
-                UserDefaults.standard.set(url.absoluteString,
-                                          forKey: GeorgeLightConfiguration.baseURLDefaultsKey)
+                georgeLightConfiguration.baseURL = url
+                georgeLightConfiguration.persistBaseURL()
                 lightOutput.setBaseURL(url)
                 return
             }
@@ -289,6 +302,59 @@ final class StatusController: NSObject, NSMenuDelegate {
             alert.informativeText = "Enter a valid HTTP root address without a path, query, or fragment."
             input.selectText(nil)
         }
+    }
+
+    func georgeLightEffectMenuItem(for state: LightState) -> NSMenuItem {
+        let item = NSMenuItem(title: state.settingsTitle, action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: state.settingsTitle)
+
+        let colorItem = NSMenuItem(title: "Color", action: nil, keyEquivalent: "")
+        let colorMenu = NSMenu(title: "Color")
+        let options = GeorgeLightColors.options(for: state)
+        for (index, option) in options.enumerated() {
+            if index == 1 { colorMenu.addItem(.separator()) }
+            let title = "\(option.title) (\(option.hex))"
+            let choice = NSMenuItem(title: title, action: #selector(chooseGeorgeLightColor(_:)), keyEquivalent: "")
+            choice.target = self
+            choice.representedObject = GeorgeLightColorSelection(state: state, color: option.hex)
+            choice.state = georgeLightConfiguration.effects.effect(for: state)?.color == option.hex ? .on : .off
+            colorMenu.addItem(choice)
+        }
+        colorItem.submenu = colorMenu
+        submenu.addItem(colorItem)
+
+        let modeItem = NSMenuItem(title: "Mode", action: nil, keyEquivalent: "")
+        let modeMenu = NSMenu(title: "Mode")
+        for mode in GeorgeLightMode.allCases {
+            let choice = NSMenuItem(title: mode.title, action: #selector(chooseGeorgeLightMode(_:)), keyEquivalent: "")
+            choice.target = self
+            choice.representedObject = GeorgeLightModeSelection(state: state, mode: mode)
+            choice.state = georgeLightConfiguration.effects.effect(for: state)?.mode == mode ? .on : .off
+            modeMenu.addItem(choice)
+        }
+        modeItem.submenu = modeMenu
+        submenu.addItem(modeItem)
+
+        item.submenu = submenu
+        return item
+    }
+
+    @objc func chooseGeorgeLightColor(_ sender: NSMenuItem) {
+        guard let selection = sender.representedObject as? GeorgeLightColorSelection,
+              var effect = georgeLightConfiguration.effects.effect(for: selection.state) else { return }
+        effect.color = selection.color
+        georgeLightConfiguration.effects.setEffect(effect, for: selection.state)
+        georgeLightConfiguration.persistEffect(for: selection.state)
+        lightOutput.setEffect(effect, for: selection.state)
+    }
+
+    @objc func chooseGeorgeLightMode(_ sender: NSMenuItem) {
+        guard let selection = sender.representedObject as? GeorgeLightModeSelection,
+              var effect = georgeLightConfiguration.effects.effect(for: selection.state) else { return }
+        effect.mode = selection.mode
+        georgeLightConfiguration.effects.setEffect(effect, for: selection.state)
+        georgeLightConfiguration.persistEffect(for: selection.state)
+        lightOutput.setEffect(effect, for: selection.state)
     }
 
     @objc func chooseColor(_ sender: NSMenuItem) {

@@ -92,6 +92,9 @@ struct LightOutputTests {
         testDisableClearsOnceWithoutRetryOrLease()
         testDisableCancelsPendingRetry()
         testBaseURLChangeUsesNewAddressImmediately()
+        testConfiguredEffectPayload()
+        testActiveEffectChangeInvalidatesRetry()
+        testInactiveEffectWaitsForMatchingState()
 
         if failures == 0 { print("ALL OK"); exit(0) }
         print("\(failures) FAILED"); exit(1)
@@ -113,9 +116,30 @@ struct LightOutputTests {
         defaults.set(true, forKey: GeorgeLightConfiguration.enabledDefaultsKey)
         check(GeorgeLightConfiguration(userDefaults: defaults).enabled,
               "enabled setting is restored")
+        defaults.set("#00ff00", forKey: GeorgeLightConfiguration.colorDefaultsKey(for: .working))
+        defaults.set(GeorgeLightMode.blink.rawValue,
+                     forKey: GeorgeLightConfiguration.modeDefaultsKey(for: .working))
+        defaults.set("#123456", forKey: GeorgeLightConfiguration.colorDefaultsKey(for: .waitingApproval))
+        defaults.set(99, forKey: GeorgeLightConfiguration.modeDefaultsKey(for: .waitingApproval))
         defaults.set("http://192.168.1.45", forKey: GeorgeLightConfiguration.baseURLDefaultsKey)
-        eq(GeorgeLightConfiguration(userDefaults: defaults).baseURL.absoluteString,
+        var restored = GeorgeLightConfiguration(userDefaults: defaults)
+        eq(restored.baseURL.absoluteString,
            "http://192.168.1.45", "UserDefaults overrides mDNS base URL")
+        eq(restored.effects.working.color, "#00FF00", "preset color restores and normalizes")
+        eq(restored.effects.working.mode, .blink, "built-in mode restores")
+        eq(restored.effects.working.brightness, 70, "working brightness remains fixed")
+        eq(restored.effects.working.durationSeconds, 300, "working duration remains fixed")
+        eq(restored.effects.waitingApproval.color, "#F2BA2E", "invalid color falls back")
+        eq(restored.effects.waitingApproval.mode, .fastBlink, "invalid mode falls back")
+
+        var done = restored.effects.done
+        done.color = "#8000FF"
+        done.mode = .breath
+        restored.effects.setEffect(done, for: .done)
+        restored.persistEffect(for: .done, to: defaults)
+        let roundTrip = GeorgeLightConfiguration(userDefaults: defaults)
+        eq(roundTrip.effects.done.color, "#8000FF", "effect color persists")
+        eq(roundTrip.effects.done.mode, .breath, "effect mode persists")
         defaults.set("not a URL", forKey: GeorgeLightConfiguration.baseURLDefaultsKey)
         eq(GeorgeLightConfiguration(userDefaults: defaults).baseURL,
            GeorgeLightConfiguration.defaultBaseURL, "invalid override falls back to default")
@@ -488,5 +512,111 @@ struct LightOutputTests {
         eq(captured.count, 2, "old-address retry is cancelled")
         eq(captured.first?.url?.host, "old-lamp.local", "first request uses old address")
         eq(captured.last?.url?.host, "new-lamp.local", "next request uses new address")
+    }
+
+    static func testConfiguredEffectPayload() {
+        let sent = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var request: URLRequest?
+        setHandler { proto, captured in
+            lock.lock(); request = captured; lock.unlock()
+            proto.succeed()
+            sent.signal()
+        }
+
+        var effects = GeorgeLightEffectConfiguration.defaults
+        var approval = effects.waitingApproval
+        approval.color = "#8000FF"
+        approval.mode = .solid
+        effects.setEffect(approval, for: .waitingApproval)
+        let output = GeorgeLightHttpOutput(
+            baseURL: URL(string: "http://lamp.local")!, enabled: true, effects: effects,
+            session: makeSession(), leaseRefreshInterval: 10, retryDelays: [0.02])
+        output.setLightState(.waitingApproval)
+        wait(sent, "configured effect was not sent")
+
+        lock.lock(); let captured = request; lock.unlock()
+        if let captured {
+            let json = payload(captured)
+            eq(json["color"] as? String, "#8000FF", "configured color reaches payload")
+            eq((json["mode_id"] as? NSNumber)?.intValue, 1, "configured mode reaches payload")
+            eq((json["brightness"] as? NSNumber)?.intValue, 90, "fixed brightness is preserved")
+            eq((json["duration_sec"] as? NSNumber)?.intValue, 300, "fixed duration is preserved")
+        } else {
+            check(false, "configured request was not captured")
+        }
+    }
+
+    static func testActiveEffectChangeInvalidatesRetry() {
+        let initialFailed = DispatchSemaphore(value: 0)
+        let updatedSent = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var requests: [URLRequest] = []
+        setHandler { proto, request in
+            lock.lock(); requests.append(request); let count = requests.count; lock.unlock()
+            if count == 1 {
+                proto.fail()
+                initialFailed.signal()
+            } else {
+                proto.succeed()
+                updatedSent.signal()
+            }
+        }
+
+        let output = GeorgeLightHttpOutput(
+            baseURL: URL(string: "http://lamp.local")!, session: makeSession(),
+            leaseRefreshInterval: 10, retryDelays: [0.2])
+        output.setLightState(.working)
+        wait(initialFailed, "initial effect did not fail")
+        Thread.sleep(forTimeInterval: 0.05)
+        var updated = GeorgeLightEffectConfiguration.defaults.working
+        updated.color = "#FF8000"
+        updated.mode = .blink
+        output.setEffect(updated, for: .working)
+        wait(updatedSent, "active effect change was not sent immediately")
+        Thread.sleep(forTimeInterval: 0.25)
+
+        lock.lock(); let captured = requests; lock.unlock()
+        eq(captured.count, 2, "active effect change cancels stale retry")
+        if captured.count == 2 {
+            let json = payload(captured[1])
+            eq(json["color"] as? String, "#FF8000", "updated active color wins")
+            eq((json["mode_id"] as? NSNumber)?.intValue, 2, "updated active mode wins")
+        }
+    }
+
+    static func testInactiveEffectWaitsForMatchingState() {
+        let workingSent = DispatchSemaphore(value: 0)
+        let doneSent = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var requests: [URLRequest] = []
+        setHandler { proto, request in
+            lock.lock(); requests.append(request); let count = requests.count; lock.unlock()
+            proto.succeed()
+            if count == 1 { workingSent.signal() }
+            if count == 2 { doneSent.signal() }
+        }
+
+        let output = GeorgeLightHttpOutput(
+            baseURL: URL(string: "http://lamp.local")!, session: makeSession(),
+            leaseRefreshInterval: 10, retryDelays: [0.02])
+        output.setLightState(.working)
+        wait(workingSent, "working state was not sent")
+        var updatedDone = GeorgeLightEffectConfiguration.defaults.done
+        updatedDone.color = "#0000FF"
+        updatedDone.mode = .fastBlink
+        output.setEffect(updatedDone, for: .done)
+        Thread.sleep(forTimeInterval: 0.1)
+        lock.lock(); let beforeDone = requests.count; lock.unlock()
+        eq(beforeDone, 1, "inactive effect does not overwrite current lamp state")
+
+        output.setLightState(.done)
+        wait(doneSent, "updated done effect was not used")
+        lock.lock(); let captured = requests; lock.unlock()
+        if captured.count == 2 {
+            let json = payload(captured[1])
+            eq(json["color"] as? String, "#0000FF", "inactive color applies on matching state")
+            eq((json["mode_id"] as? NSNumber)?.intValue, 4, "inactive mode applies on matching state")
+        }
     }
 }

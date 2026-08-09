@@ -83,10 +83,21 @@ eq(LightState(codexState: "idle"), .idle, "idle maps to idle")
 eq(LightState(codexState: nil), .idle, "no selected session maps to idle")
 eq(LightState(codexState: "future-state"), .idle, "unknown states fail safe to idle")
 
-eq(GeorgeLightEffects.working.modeID, 3, "working uses built-in breath mode")
-eq(GeorgeLightEffects.waitingApproval.modeID, 4, "approval uses built-in fast blink mode")
-eq(GeorgeLightEffects.done.modeID, 1, "done uses built-in solid mode")
-eq(GeorgeLightEffects.effect(for: .idle), nil, "idle has no display effect")
+let defaultEffects = GeorgeLightEffectConfiguration.defaults
+eq(defaultEffects.working.mode, .breath, "working uses built-in breath mode")
+eq(defaultEffects.waitingApproval.mode, .fastBlink, "approval uses built-in fast blink mode")
+eq(defaultEffects.done.mode, .solid, "done uses built-in solid mode")
+eq(defaultEffects.effect(for: .idle), nil, "idle has no display effect")
+
+eq(GeorgeLightMode.allCases.map { $0.rawValue }, [1, 2, 3, 4], "only firmware built-in mode IDs are exposed")
+eq(GeorgeLightMode.allCases.map { $0.title }, ["Solid", "Blink", "Breath", "Fast Blink"],
+   "built-in mode titles")
+eq(GeorgeLightColors.firmwarePresets.map { $0.hex },
+   ["#FF0000", "#00FF00", "#FFFF00", "#FFFFFF", "#000000", "#FF8000", "#0000FF", "#8000FF"],
+   "firmware 1.0.1 preset palette")
+eq(GeorgeLightColors.options(for: .working).first?.hex, "#4D8FFF", "working default color is first")
+eq(GeorgeLightColors.options(for: .waitingApproval).first?.hex, "#F2BA2E", "approval default color is first")
+eq(GeorgeLightColors.options(for: .done).first?.hex, "#4DC766", "done default color is first")
 
 // ---- installer launch and private log helpers ----
 let oddInstaller = "/Applications/Codex \" $(touch /tmp/nope) Status Bar.app/Contents/Resources/install.js"

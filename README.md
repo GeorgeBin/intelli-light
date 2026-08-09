@@ -120,9 +120,10 @@ swiftc Tests/light_output_tests.swift Sources/LightOutput.swift Sources/GeorgeLi
 ```
 
 GeorgeLight output is enabled by default and uses `http://george-light-zero.local`.
-Use the `GeorgeLight` menu item to enable or disable output, and
-`Set GeorgeLight Address...` to change the device address immediately. The settings are
-stored under the existing app domain and can also be managed from Terminal:
+Use `Enable GeorgeLight` to enable or disable output, `Address...` to change the device
+address immediately, and the Working, Waiting Approval, and Done submenus to select a
+firmware preset color and built-in LED mode. The settings are stored under the existing
+app domain and can also be managed from Terminal:
 
 ```bash
 defaults write io.github.kiwigaze.codexstatusbar georgeLightEnabled -bool true

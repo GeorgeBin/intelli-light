@@ -9,6 +9,7 @@ final class GeorgeLightHttpOutput: ConfigurableLightOutput {
 
     private var baseURL: URL
     private var enabled: Bool
+    private var effects: GeorgeLightEffectConfiguration
     private let session: URLSession
     private let leaseRefreshInterval: TimeInterval
     private let retryDelays: [TimeInterval]
@@ -22,11 +23,13 @@ final class GeorgeLightHttpOutput: ConfigurableLightOutput {
 
     init(baseURL: URL = GeorgeLightConfiguration().baseURL,
          enabled: Bool = true,
+         effects: GeorgeLightEffectConfiguration = .defaults,
          session: URLSession? = nil,
          leaseRefreshInterval: TimeInterval = GeorgeLightHttpOutput.defaultLeaseRefreshInterval,
          retryDelays: [TimeInterval] = GeorgeLightHttpOutput.defaultRetryDelays) {
         self.baseURL = baseURL
         self.enabled = enabled
+        self.effects = effects
         self.leaseRefreshInterval = max(0, leaseRefreshInterval)
         self.retryDelays = retryDelays.isEmpty ? Self.defaultRetryDelays : retryDelays.map { max(0, $0) }
         if let session {
@@ -77,6 +80,19 @@ final class GeorgeLightHttpOutput: ConfigurableLightOutput {
         queue.async { [weak self] in
             guard let self, self.baseURL != baseURL else { return }
             self.baseURL = baseURL
+            self.desiredGeneration &+= 1
+            self.retryAttempt = 0
+            self.scheduledWork?.cancel()
+            self.scheduledWork = nil
+            if self.enabled { self.startLatestRequestIfNeeded() }
+        }
+    }
+
+    func setEffect(_ effect: GeorgeLightEffectSettings, for state: LightState) {
+        queue.async { [weak self] in
+            guard let self, state != .idle, self.effects.effect(for: state) != effect else { return }
+            self.effects.setEffect(effect, for: state)
+            guard self.desiredState == state else { return }
             self.desiredGeneration &+= 1
             self.retryAttempt = 0
             self.scheduledWork?.cancel()
@@ -162,10 +178,10 @@ final class GeorgeLightHttpOutput: ConfigurableLightOutput {
         request.timeoutInterval = Self.requestTimeout
         request.cachePolicy = .reloadIgnoringLocalCacheData
 
-        if let effect = GeorgeLightEffects.effect(for: state) {
+        if let effect = effects.effect(for: state) {
             let payload: [String: Any] = [
                 "color": effect.color,
-                "mode_id": effect.modeID,
+                "mode_id": effect.mode.rawValue,
                 "duration_sec": effect.durationSeconds,
                 "brightness": effect.brightness,
             ]
