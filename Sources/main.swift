@@ -17,10 +17,13 @@ final class StatusController: NSObject, NSMenuDelegate {
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     let lightOutput: ConfigurableLightOutput
     var georgeLightConfiguration: GeorgeLightConfiguration
-    let statesDir = (NSHomeDirectory() as NSString).appendingPathComponent(".codex/statusbar/states.d")
+    var agentConfiguration: AgentProviderConfiguration
+    let codexStatesDir = (NSHomeDirectory() as NSString).appendingPathComponent(".codex/statusbar/states.d")
+    let claudeStatesDir = (NSHomeDirectory() as NSString).appendingPathComponent(".claude/statusbar/states.d")
     let legacyStatePath = (NSHomeDirectory() as NSString).appendingPathComponent(".codex/statusbar/state.json")
-    let sessionsDir = (NSHomeDirectory() as NSString).appendingPathComponent(".codex/statusbar/sessions.d")
-    // sessionId -> (SessionState, file mtime observed). mtime lets tick() reload only changed files.
+    let codexSessionsDir = (NSHomeDirectory() as NSString).appendingPathComponent(".codex/statusbar/sessions.d")
+    let claudeSessionsDir = (NSHomeDirectory() as NSString).appendingPathComponent(".claude/statusbar/sessions.d")
+    // provider + filename -> state and observed mtime.
     var sessions: [String: (state: SessionState, mtime: Date)] = [:]
     var pinnedSession: String?
     var pinnedDiedAt: Date?   // when the pinned session went stale; grey it for 5s before dropping
@@ -60,6 +63,7 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     override init() {
         let georgeLight = GeorgeLightConfiguration()
+        agentConfiguration = AgentProviderConfiguration()
         georgeLightConfiguration = georgeLight
         lightOutput = GeorgeLightHttpOutput(
             baseURL: georgeLight.baseURL, enabled: georgeLight.enabled, effects: georgeLight.effects)
@@ -79,7 +83,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         ensureHooksInstalled()
     }
 
-    // Wire up the Codex hooks ourselves by running the bundled installer, so the
+    // Wire up the Codex and Claude Code hooks ourselves by running the bundled installer, so the
     // user just drags the app in and opens it — no manual Terminal step. Runs on first
     // install AND whenever the version or bundled hook resources change, so upgrades pick
     // up new/changed hooks and retire old artifacts. install.js is idempotent.
@@ -110,8 +114,8 @@ final class StatusController: NSObject, NSMenuDelegate {
             NSApp.activate(ignoringOtherApps: true)
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = "Codex Status Bar couldn’t set up its hooks"
-            alert.informativeText = "The Codex hooks weren’t installed — Node.js may not be on the app’s PATH. Open Terminal and run:\n\nnode \(shellQuoted(installer))\n\nThen start codex and approve the hooks."
+            alert.messageText = "Codex Status Bar couldn’t set up its agent hooks"
+            alert.informativeText = "The Codex and Claude Code hooks weren’t installed — Node.js may not be on the app’s PATH. Open Terminal and run:\n\nnode \(shellQuoted(installer))\n\nThen restart the agent."
             alert.addButton(withTitle: "OK")
             alert.runModal()
         }
@@ -119,7 +123,8 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     func hookInstallFingerprint(installer: String) -> String {
         let resourceDir = (installer as NSString).deletingLastPathComponent
-        let names = ["install.js", "update.js", "lifecycle.js", "uninstall.js", "fs-utils.js"]
+        let names = ["install.js", "update.js", "lifecycle.js", "claude-update.js",
+                     "claude-lifecycle.js", "uninstall.js", "fs-utils.js"]
         return names.map { name in
             let path = (resourceDir as NSString).appendingPathComponent(name)
             guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
@@ -149,6 +154,20 @@ final class StatusController: NSObject, NSMenuDelegate {
         timerItem.target = self
         timerItem.state = showTimer ? .on : .off
         menu.addItem(timerItem)
+
+        let agentsItem = NSMenuItem(title: "Agents", action: nil, keyEquivalent: "")
+        let agentsMenu = NSMenu(title: "Agents")
+        for provider in AgentProvider.allCases {
+            let item = NSMenuItem(title: provider == .claude ? "Claude Code" : provider.displayName,
+                                  action: #selector(toggleAgentProvider(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = provider.rawValue
+            item.state = agentConfiguration.enabledProviders.contains(provider) ? .on : .off
+            item.isEnabled = item.state == .off || agentConfiguration.enabledProviders.count > 1
+            agentsMenu.addItem(item)
+        }
+        agentsItem.submenu = agentsMenu
+        menu.addItem(agentsItem)
 
         menu.addItem(.separator())
         let georgeLightItem = NSMenuItem(title: "Enable GeorgeLight",
@@ -183,12 +202,14 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     func appendSessionsMenu(into menu: NSMenu) {
         let now = Date().timeIntervalSince1970
-        let all = sessions.map { $0.value.state }
+        let all = sessions.map { $0.value.state }.filter {
+            agentConfiguration.enabledProviders.contains($0.provider)
+        }
         let live = all.filter { displayEligible($0, now: now) }
         let ordered = menuOrder(pinned: pinnedSession, sessions: live, now: now, limit: 5)
 
         // Track pinned death so the pinned item can be greyed for 5s before dropping.
-        let pinnedAlive = pinnedSession.flatMap { id in live.first { $0.sessionId == id }?.isAlive(now: now) } ?? false
+        let pinnedAlive = live.first(where: { pinnedSessionMatches(pinnedSession, $0) })?.isAlive(now: now) ?? false
         if pinnedSession != nil, !pinnedAlive {
             if pinnedDiedAt == nil { pinnedDiedAt = Date() }
             if let died = pinnedDiedAt, Date().timeIntervalSince(died) > 5 {
@@ -202,7 +223,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         var endedState: SessionState?
         if let p = pinnedSession, !pinnedAlive, let died = pinnedDiedAt,
            Date().timeIntervalSince(died) <= 5 {
-            endedState = all.first(where: { $0.sessionId == p })
+            endedState = all.first(where: { pinnedSessionMatches(p, $0) })
         }
 
         if ordered.isEmpty {
@@ -219,11 +240,12 @@ final class StatusController: NSObject, NSMenuDelegate {
         }
         menu.addItem(.separator())
         for st in ordered {
-            let isPinned = st.sessionId == pinnedSession
-            let title = "\(isPinned ? "● " : "")\(st.project.isEmpty ? st.sessionId : st.project) · \(st.label)"
+            let isPinned = pinnedSessionMatches(pinnedSession, st)
+            let status = st.normalizedState.menuTitle
+            let title = "\(isPinned ? "● " : "")\(st.provider.displayName) · \(st.project.isEmpty ? st.sessionId : st.project) · \(status)"
             let item = NSMenuItem(title: title, action: #selector(pinSession(_:)), keyEquivalent: "")
             item.target = self
-            item.representedObject = st.sessionId
+            item.representedObject = st.key.persistedValue
             item.state = isPinned ? .on : .off
             menu.addItem(item)
         }
@@ -231,7 +253,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     }
 
     func endedMenuItem(for st: SessionState) -> NSMenuItem {
-        let title = "● \(st.project.isEmpty ? st.sessionId : st.project) · ended"
+        let title = "● \(st.provider.displayName) · \(st.project.isEmpty ? st.sessionId : st.project) · ended"
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = false
         return item
@@ -270,6 +292,19 @@ final class StatusController: NSObject, NSMenuDelegate {
         showTimer.toggle()
         UserDefaults.standard.set(showTimer, forKey: "showTimer")
         applyTitle()
+    }
+
+    @objc func toggleAgentProvider(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let provider = AgentProvider(rawValue: raw),
+              agentConfiguration.toggle(provider) else {
+            NSSound.beep()
+            return
+        }
+        agentConfiguration.persist()
+        pinnedDiedAt = nil
+        notNeededSince = nil
+        evaluate()
     }
 
     @objc func toggleGeorgeLight() {
@@ -385,31 +420,36 @@ final class StatusController: NSObject, NSMenuDelegate {
     func loadSessions() {
         let fm = FileManager.default
         let now = Date().timeIntervalSince1970
-        var seen: Set<String> = []                          // sanitized filenames on disk
-        var seenIds: Set<String> = []                       // raw sessionIds loaded this pass
-        if let names = try? fm.contentsOfDirectory(atPath: statesDir) {
-            for name in names {
-                if name.hasSuffix(".tmp") { continue }
-                let p = (statesDir as NSString).appendingPathComponent(name)
+        var seen: Set<String> = []
+        var seenIds: Set<String> = []
+        let sources: [(AgentProvider, String)] = [(.codex, codexStatesDir), (.claude, claudeStatesDir)]
+        for (provider, directory) in sources {
+            guard let names = try? fm.contentsOfDirectory(atPath: directory) else { continue }
+            for name in names where !name.hasSuffix(".tmp") {
+                let cacheKey = "\(provider.rawValue):\(name)"
+                let p = (directory as NSString).appendingPathComponent(name)
                 guard let attrs = try? fm.attributesOfItem(atPath: p),
                       let m = attrs[.modificationDate] as? Date else { continue }
-                seen.insert(name)
-                // Populate seenIds for EVERY file present on disk — including those we
-                // short-circuit below. If we only inserted after the mtime check, a stuck
-                // session (frozen mtime → `continue`) would never enter seenIds, and the
-                // doneShownAt/timeoutLogged pruning loops would wipe its entry every tick
-                // (re-opening the Done flicker and re-logging every 0.4s).
-                if let prev = sessions[name] { seenIds.insert(prev.state.sessionId) }
-                if let prev = sessions[name], prev.mtime == m { continue }
+                seen.insert(cacheKey)
+                if let prev = sessions[cacheKey] { seenIds.insert(prev.state.key.persistedValue) }
+                if let prev = sessions[cacheKey], prev.mtime == m { continue }
                 guard let data = fm.contents(atPath: p),
                       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let st = SessionState(json: obj) else { continue }
-                sessions[name] = (st, m)
-                seenIds.insert(st.sessionId)
+                      var st = SessionState(json: obj) else { continue }
+                st.provider = provider
+                sessions[cacheKey] = (st, m)
+                seenIds.insert(st.key.persistedValue)
             }
         }
+        // A loaded legacy Codex state has no states.d filename to rediscover. Keep the
+        // one-shot fallback cached until a real Codex state appears or the legacy file is removed.
+        if !seen.contains(where: { $0.hasPrefix("codex:") }),
+           fm.fileExists(atPath: legacyStatePath),
+           let legacy = sessions["codex:__legacy__"] {
+            seen.insert("codex:__legacy__")
+            seenIds.insert(legacy.state.key.persistedValue)
+        }
         for k in sessions.keys where !seen.contains(k) { sessions.removeValue(forKey: k) }
-        // Prune per-session done timers by RAW sessionId (the key space doneShownAt uses).
         for k in doneShownAt.keys where !seenIds.contains(k) { doneShownAt.removeValue(forKey: k) }
         for k in timeoutLogged where !seenIds.contains(k) { timeoutLogged.remove(k) }
 
@@ -421,22 +461,23 @@ final class StatusController: NSObject, NSMenuDelegate {
         for entry in sessions.values {
             let st = entry.state
             let age = now - st.ts
-            if (st.state == "thinking" || st.state == "tool") && age > 900
-                && !timeoutLogged.contains(st.sessionId) {
+            let key = st.key.persistedValue
+            if st.normalizedState == .working && age > 900 && !timeoutLogged.contains(key) {
                 appendTimeoutLog(chosen: st, age: age)
-                timeoutLogged.insert(st.sessionId)
+                timeoutLogged.insert(key)
             }
-            if age < 900 { timeoutLogged.remove(st.sessionId) }
+            if age < 900 { timeoutLogged.remove(key) }
         }
 
         // One-shot legacy fallback.
-        if sessions.isEmpty, let attrs = try? fm.attributesOfItem(atPath: legacyStatePath),
+        if !sessions.keys.contains(where: { $0.hasPrefix("codex:") }),
+           let attrs = try? fm.attributesOfItem(atPath: legacyStatePath),
            let m = attrs[.modificationDate] as? Date, m != lastMTime {
             lastMTime = m
             if let data = fm.contents(atPath: legacyStatePath),
                let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let st = SessionState(json: obj) {
-                sessions["__legacy__"] = (st, m)
+                sessions["codex:__legacy__"] = (st, m)
             }
         }
     }
@@ -454,36 +495,47 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     func evaluate() {
         let now = Date().timeIntervalSince1970
-        let all = sessions.map { $0.value.state }.filter { displayEligible($0, now: now) }
+        let enabled = agentConfiguration.enabledProviders
+        let all = sessions.map { $0.value.state }.filter {
+            enabled.contains($0.provider) && displayEligible($0, now: now)
+        }
         let doneTimes = doneShownAt.mapValues { $0.timeIntervalSince1970 }
+        let globalState = arbitrateAgentState(
+            enabledProviders: enabled, sessions: all, now: now, doneShownAt: doneTimes)
+        let globalLightState: LightState
+        switch globalState {
+        case .working: globalLightState = .working
+        case .waitingApproval: globalLightState = .waitingApproval
+        case .done: globalLightState = .done
+        case .idle: globalLightState = .idle
+        }
+        lightOutput.setLightState(globalLightState)
         guard let chosen = selectDisplay(pinned: pinnedSession, sessions: all, now: now, doneShownAt: doneTimes) else {
-            lightOutput.setLightState(.idle)
             render(label: "", color: iconColor, animate: false, startedAt: 0,
                    pausedTotal: 0, pauseStart: 0)
             return
         }
         let label = chosen.label
-        let state = chosen.state
-        lightOutput.setLightState(LightState(codexState: state))
+        let state = chosen.normalizedState
 
         // No age>900 safety net here: selectDisplay already excludes sessions older
         // than staleAfter=900s, and stuck-turn logging fires in loadSessions. By the
         // time a session reaches evaluate, it is alive and recent.
 
         switch state {
-        case "thinking", "tool":
-            let fallback = state == "thinking" ? "Thinking…" : "Working…"
+        case .working:
+            let fallback = chosen.state == "thinking" ? "Thinking…" : "Working…"
             render(label: label.isEmpty ? fallback : label, color: iconColor, animate: true,
                    startedAt: chosen.startedAt, pausedTotal: chosen.pausedTotal, pauseStart: chosen.pauseStart)
-        case "permission":
+        case .waitingApproval:
             // Timer stays visible but frozen at net time (spec §6.4). The amber dot
             // signals the pause; the clock just stops advancing until post fires.
             render(label: "Awaiting permission", color: amber, animate: false,
                    startedAt: chosen.startedAt, pausedTotal: chosen.pausedTotal,
                    pauseStart: chosen.pauseStart, dot: true)
-        case "done":
+        case .done:
             renderDone(chosen: chosen, now: now)
-        default:
+        case .idle:
             render(label: "", color: iconColor, animate: false, startedAt: 0,
                    pausedTotal: 0, pauseStart: 0)
         }
@@ -496,8 +548,9 @@ final class StatusController: NSObject, NSMenuDelegate {
     // file still says "done", causing the green checkmark to flicker forever.
     // loadSessions prunes the entry when the session file disappears.
     func renderDone(chosen: SessionState, now: TimeInterval) {
-        let shownAt = doneShownAt[chosen.sessionId]?.timeIntervalSince1970 ?? chosen.ts
-        doneShownAt[chosen.sessionId] = Date(timeIntervalSince1970: shownAt)
+        let key = chosen.key.persistedValue
+        let shownAt = doneShownAt[key]?.timeIntervalSince1970 ?? chosen.ts
+        doneShownAt[key] = Date(timeIntervalSince1970: shownAt)
         if now - shownAt > SessionState.doneVisibleFor {
             render(label: "", color: iconColor, animate: false,
                    startedAt: 0, pausedTotal: 0, pauseStart: 0)
@@ -508,8 +561,9 @@ final class StatusController: NSObject, NSMenuDelegate {
     }
 
     func appendTimeoutLog(chosen: SessionState, age: TimeInterval) {
-        let logPath = (NSHomeDirectory() as NSString).appendingPathComponent(".codex/statusbar/app.log")
-        let line = "\(ISO8601DateFormatter().string(from: Date())) TIMEOUT session=\(chosen.sessionId) state=\(chosen.state) age=\(Int(age)) project=\(chosen.project)\n"
+        let logPath = (NSHomeDirectory() as NSString).appendingPathComponent(
+            ".\(chosen.provider.rawValue)/statusbar/app.log")
+        let line = "\(ISO8601DateFormatter().string(from: Date())) TIMEOUT provider=\(chosen.provider.rawValue) session=\(chosen.sessionId) state=\(chosen.state) age=\(Int(age)) project=\(chosen.project)\n"
         appendPrivateLogLine(line, toPath: logPath)
     }
 
@@ -519,8 +573,8 @@ final class StatusController: NSObject, NSMenuDelegate {
     // backing the desktop app and the VS Code extension all run as an executable named
     // `codex`, so an exact-name match catches every surface without the false positives a
     // broad command-line match invites (e.g. an MCP server with .codex in its argv).
-    func codexRunning() -> Bool {
-        pgrepMatches(["-x", "codex"])
+    func providerRunning(_ provider: AgentProvider) -> Bool {
+        pgrepMatches(["-x", provider == .codex ? "codex" : "claude"])
     }
 
     func pgrepMatches(_ args: [String]) -> Bool {
@@ -538,12 +592,13 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     // A session is "fresh" if any file in sessions.d/ was modified within freshWindow
     // seconds — covers the gap right after launch before a process is visible.
-    func freshSession() -> Bool {
+    func freshSession(_ provider: AgentProvider) -> Bool {
         let fm = FileManager.default
-        guard let names = try? fm.contentsOfDirectory(atPath: sessionsDir) else { return false }
+        let directory = provider == .codex ? codexSessionsDir : claudeSessionsDir
+        guard let names = try? fm.contentsOfDirectory(atPath: directory) else { return false }
         let now = Date()
         for name in names {
-            let path = (sessionsDir as NSString).appendingPathComponent(name)
+            let path = (directory as NSString).appendingPathComponent(name)
             if let attrs = try? fm.attributesOfItem(atPath: path),
                let m = attrs[.modificationDate] as? Date,
                now.timeIntervalSince(m) <= freshWindow {
@@ -553,12 +608,22 @@ final class StatusController: NSObject, NSMenuDelegate {
         return false
     }
 
+    func activeOwnedSession(_ provider: AgentProvider) -> Bool {
+        sessions.values.contains {
+            let state = $0.state
+            return state.provider == provider && state.hasReliableOwner() && processAlive(state.ownerPid)
+        }
+    }
+
     // Stay while Codex is running OR a session was just touched; otherwise quit (after a
     // short, debounced grace so warmup churn and relaunches don't kill us).
     func checkLifecycle() {
         let now = Date()
         if now.timeIntervalSince(launchedAt) < launchGrace { return }
-        if codexRunning() || freshSession() {
+        let needed = agentConfiguration.enabledProviders.contains {
+            providerRunning($0) || activeOwnedSession($0) || freshSession($0)
+        }
+        if needed {
             notNeededSince = nil
             return
         }

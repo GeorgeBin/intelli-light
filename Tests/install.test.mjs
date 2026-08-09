@@ -28,6 +28,10 @@ function readHooks(home) {
   return JSON.parse(fs.readFileSync(path.join(home, ".codex", "hooks.json"), "utf8"));
 }
 
+function readClaudeSettings(home) {
+  return JSON.parse(fs.readFileSync(path.join(home, ".claude", "settings.json"), "utf8"));
+}
+
 function ourCommands(hooksObj) {
   const out = [];
   for (const arr of Object.values(hooksObj.hooks || {}))
@@ -46,6 +50,13 @@ function seedHooks(home, obj) {
   return codexDir;
 }
 
+function seedClaudeSettings(home, obj) {
+  const claudeDir = path.join(home, ".claude");
+  fs.mkdirSync(claudeDir, { recursive: true });
+  fs.writeFileSync(path.join(claudeDir, "settings.json"), JSON.stringify(obj) + "\n");
+  return claudeDir;
+}
+
 test("install merges our hooks and quotes interpolated paths (M6)", () => {
   using h = withTempHome();
   const r = run(INSTALL, h.home);
@@ -58,6 +69,11 @@ test("install merges our hooks and quotes interpolated paths (M6)", () => {
     const quoted = c.match(/"/g) || [];
     assert.ok(quoted.length >= 4, `command must quote node + script path: ${c}`);
   }
+  const claude = readClaudeSettings(h.home);
+  assert.ok(claude.hooks.SessionStart?.length, "Claude SessionStart hook added");
+  assert.ok(claude.hooks.SessionEnd?.length, "Claude SessionEnd hook added");
+  assert.ok(claude.hooks.PostToolUseFailure?.length, "Claude failure hook added");
+  assert.equal(ourCommands(claude).length, 8, "all Claude status hooks present");
 });
 
 test("install is idempotent and preserves unrelated hooks", () => {
@@ -71,6 +87,26 @@ test("install is idempotent and preserves unrelated hooks", () => {
   assert.ok(stopCmds.includes("echo other"), "unrelated Stop hook preserved");
   assert.equal(ourCommands(hooks).filter((c) => c.includes("update.js")).length, 5,
     "status update hooks present exactly once after double install");
+});
+
+test("Claude install preserves top-level settings and unrelated matcher groups", () => {
+  using h = withTempHome();
+  const original = {
+    model: "claude-sonnet-test",
+    permissions: { allow: ["Bash(git status)"] },
+    hooks: {
+      PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "echo third-party" }] }],
+    },
+  };
+  seedClaudeSettings(h.home, original);
+  assert.equal(run(INSTALL, h.home).status, 0);
+  assert.equal(run(INSTALL, h.home).status, 0);
+  const settings = readClaudeSettings(h.home);
+  assert.equal(settings.model, original.model);
+  assert.deepEqual(settings.permissions, original.permissions);
+  assert.ok(settings.hooks.PreToolUse.some((entry) =>
+    entry.matcher === "Bash" && entry.hooks.some((hook) => hook.command === "echo third-party")));
+  assert.equal(ourCommands(settings).length, 8, "Claude hooks are idempotent");
 });
 
 test("install creates the .bak-statusbar backup exactly once", () => {
@@ -103,6 +139,12 @@ test("install writes private hooks config, backups, and copied hook scripts unde
   assert.equal(fs.statSync(path.join(statusDir, "update.js")).mode & 0o777, 0o600);
   assert.equal(fs.statSync(path.join(statusDir, "lifecycle.js")).mode & 0o777, 0o600);
   assert.equal(fs.statSync(path.join(statusDir, "fs-utils.js")).mode & 0o777, 0o600);
+  const claudeDir = path.join(h.home, ".claude");
+  const claudeStatusDir = path.join(claudeDir, "statusbar");
+  assert.equal(fs.statSync(claudeStatusDir).mode & 0o777, 0o700);
+  assert.equal(fs.statSync(path.join(claudeDir, "settings.json")).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(path.join(claudeStatusDir, "claude-update.js")).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(path.join(claudeStatusDir, "claude-lifecycle.js")).mode & 0o777, 0o600);
 });
 
 test("atomic writer preserves the original file if rename fails and removes temp files", () => {
@@ -130,6 +172,10 @@ test("atomic writer preserves the original file if rename fails and removes temp
 test("uninstall removes only our hooks and drops emptied event arrays", () => {
   using h = withTempHome();
   seedHooks(h.home, OTHER_HOOKS);
+  seedClaudeSettings(h.home, {
+    theme: "dark",
+    hooks: { Stop: [{ hooks: [{ type: "command", command: "echo claude-other" }] }] },
+  });
   const install = run(INSTALL, h.home);
   assert.equal(install.status, 0, install.stderr);
   assert.ok(readHooks(h.home).hooks.SessionStart?.length, "install added SessionStart hook");
@@ -146,4 +192,9 @@ test("uninstall removes only our hooks and drops emptied event arrays", () => {
     "unrelated Stop hook preserved through uninstall");
   assert.equal(fs.statSync(path.join(h.home, ".codex", "hooks.json")).mode & 0o777, 0o600);
   assert.deepEqual(fs.readdirSync(path.join(h.home, ".codex")).filter((name) => name.includes(".tmp")), []);
+  const claude = readClaudeSettings(h.home);
+  assert.equal(ourCommands(claude).length, 0, "no Claude status hooks remain");
+  assert.equal(claude.theme, "dark", "Claude top-level settings survive uninstall");
+  assert.ok(claude.hooks.Stop.flatMap((entry) => entry.hooks)
+    .some((hook) => hook.command === "echo claude-other"));
 });

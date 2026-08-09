@@ -57,6 +57,17 @@ if let parsedDefaultOwner = SessionState(json: ["state": "thinking"]) {
     check(false, "json without owner fields parses")
 }
 
+if let parsedClaude = SessionState(json: ["state": "waitingApproval", "provider": "claude", "sessionId": "c1"]) {
+    eq(parsedClaude.provider, .claude, "provider parses from unified state JSON")
+    eq(parsedClaude.normalizedState, .waitingApproval, "Claude state normalizes")
+} else {
+    check(false, "Claude state JSON parses")
+}
+if let parsedLegacyCodex = SessionState(json: ["state": "tool", "sessionId": "legacy"]) {
+    eq(parsedLegacyCodex.provider, .codex, "legacy Codex JSON defaults provider")
+    eq(parsedLegacyCodex.normalizedState, .working, "legacy Codex tool normalizes")
+}
+
 // ---- selectDisplay: pinned wins if alive, else most recent alive, else nil ----
 let sA = SessionState(state: "thinking", label: "A", tool: "", project: "A", sessionId: "a", transcript: "", startedAt: 1, pausedTotal: 0, pauseStart: 0, ts: now - 5)
 let sB = SessionState(state: "tool", label: "B", tool: "Bash", project: "B", sessionId: "b", transcript: "", startedAt: 1, pausedTotal: 0, pauseStart: 0, ts: now - 1)
@@ -73,6 +84,52 @@ eq(selectDisplay(pinned: nil, sessions: [sA, doneExpired], now: now, doneShownAt
 eq(selectDisplay(pinned: nil, sessions: [sA, doneRecent], now: now, doneShownAt: ["done-recent": now - 1])?.sessionId, "done-recent", "non-expired done still wins by recency")
 eq(selectDisplay(pinned: "done-expired", sessions: [sA, doneExpired], now: now, doneShownAt: ["done-expired": now - 3])?.sessionId, "a", "pinned expired done falls back to active session")
 eq(selectDisplay(pinned: nil, sessions: [sA, doneStaleNoSentinel], now: now)?.sessionId, "a", "done without sentinel uses state timestamp and does not replay after window")
+
+// ---- provider-independent arbitration and composite identities ----
+var claudeWorking = sA
+claudeWorking.provider = .claude
+claudeWorking.sessionId = "shared"
+claudeWorking.state = "working"
+var codexSameId = sB
+codexSameId.sessionId = "shared"
+eq(claudeWorking.key.persistedValue, "claude:shared", "Claude session key is namespaced")
+eq(codexSameId.key.persistedValue, "codex:shared", "Codex session key is namespaced")
+eq(selectDisplay(pinned: "claude:shared", sessions: [codexSameId, claudeWorking], now: now)?.provider,
+   .claude, "composite pin selects the intended provider")
+eq(selectDisplay(pinned: "shared", sessions: [claudeWorking, codexSameId], now: now)?.provider,
+   .codex, "legacy raw pin migrates as Codex")
+
+var claudeApproval = claudeWorking
+claudeApproval.sessionId = "approval"
+claudeApproval.state = "waitingApproval"
+claudeApproval.ts = now
+var codexDone = doneRecent
+codexDone.provider = .codex
+eq(arbitrateAgentState(enabledProviders: [.codex, .claude],
+                       sessions: [codexSameId, claudeApproval, codexDone], now: now),
+   .waitingApproval, "approval wins across providers")
+eq(arbitrateAgentState(enabledProviders: [.codex, .claude],
+                       sessions: [codexSameId, claudeWorking, codexDone], now: now),
+   .working, "working wins over done across providers")
+eq(arbitrateAgentState(enabledProviders: [.codex],
+                       sessions: [claudeApproval, codexDone], now: now),
+   .done, "disabled Claude state is ignored")
+eq(arbitrateAgentState(enabledProviders: [.codex], sessions: [doneStaleNoSentinel], now: now),
+   .idle, "expired done arbitrates to idle")
+eq(arbitrateAgentState(enabledProviders: [.claude], sessions: [codexSameId], now: now),
+   .idle, "no enabled-provider session yields idle")
+
+let providerSuiteName = "agent-provider-tests-\(UUID().uuidString)"
+let providerDefaults = UserDefaults(suiteName: providerSuiteName)!
+providerDefaults.removePersistentDomain(forName: providerSuiteName)
+var providerConfiguration = AgentProviderConfiguration(userDefaults: providerDefaults)
+eq(providerConfiguration.enabledProviders, Set(AgentProvider.allCases), "both providers enabled by default")
+check(providerConfiguration.toggle(.claude), "one provider can be disabled")
+check(!providerConfiguration.toggle(.codex), "last provider cannot be disabled")
+providerConfiguration.persist(to: providerDefaults)
+eq(AgentProviderConfiguration(userDefaults: providerDefaults).enabledProviders, [.codex],
+   "provider selection persists")
+providerDefaults.removePersistentDomain(forName: providerSuiteName)
 
 // ---- final Codex state -> GeorgeLight state ----
 eq(LightState(codexState: "thinking"), .working, "thinking maps to working")

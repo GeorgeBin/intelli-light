@@ -115,6 +115,7 @@ Run the tests:
 ```bash
 node --test Tests/install.test.mjs
 node --test Tests/update.test.mjs
+node --test Tests/claude_hooks.test.mjs
 swiftc Tests/logic_tests.swift Sources/SessionState.swift Sources/AppSupport.swift Sources/LightOutput.swift -o /tmp/csbt && /tmp/csbt
 swiftc Tests/light_output_tests.swift Sources/LightOutput.swift Sources/GeorgeLightHttpOutput.swift -o /tmp/light-output-tests && /tmp/light-output-tests
 ```

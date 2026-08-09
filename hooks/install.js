@@ -1,8 +1,6 @@
 #!/usr/bin/env node
-// Installs the status-bar hooks into ~/.codex/hooks.json (merging, never
-// clobbering existing hooks) and copies update.js + lifecycle.js to
-// ~/.codex/statusbar/. Re-runnable: existing status-bar hooks are stripped before
-// re-adding.
+// Installs Codex and Claude Code user-scope hooks by merging only the entries owned
+// by this app. Re-running is idempotent and preserves unrelated configuration.
 
 const fs = require("fs");
 const os = require("os");
@@ -10,60 +8,86 @@ const path = require("path");
 const { copyPrivateFile, ensurePrivateDir, writeFileAtomic } = require("./fs-utils.js");
 
 const home = os.homedir();
-const sbDir = path.join(home, ".codex", "statusbar");
-const MARKER = sbDir; // every hook command we add points inside this dir
-const updateDest = path.join(sbDir, "update.js");
-const lifecycleDest = path.join(sbDir, "lifecycle.js");
-const fsUtilsDest = path.join(sbDir, "fs-utils.js");
-const hooksPath = path.join(home, ".codex", "hooks.json");
 const node = process.execPath;
 
-ensurePrivateDir(sbDir);
-copyPrivateFile(path.join(__dirname, "update.js"), updateDest);
-copyPrivateFile(path.join(__dirname, "lifecycle.js"), lifecycleDest);
-copyPrivateFile(path.join(__dirname, "fs-utils.js"), fsUtilsDest);
-
-const cmd = (evt) => `"${node}" "${updateDest}" ${evt}`;
-const life = (evt) => `"${node}" "${lifecycleDest}" ${evt}`;
-
-let obj = { hooks: {} };
-let backedUp = false;
-if (fs.existsSync(hooksPath)) {
-  obj = JSON.parse(fs.readFileSync(hooksPath, "utf8"));
-  const bak = hooksPath + ".bak-statusbar";
-  if (!fs.existsSync(bak)) { copyPrivateFile(hooksPath, bak); backedUp = true; }
+function readConfiguration(configPath) {
+  if (!fs.existsSync(configPath)) return { object: {}, backedUp: false };
+  const object = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  if (!object || Array.isArray(object) || typeof object !== "object") {
+    throw new Error(`${configPath} must contain a JSON object`);
+  }
+  const backup = configPath + ".bak-statusbar";
+  let backedUp = false;
+  if (!fs.existsSync(backup)) {
+    copyPrivateFile(configPath, backup);
+    backedUp = true;
+  }
+  return { object, backedUp };
 }
-obj.hooks = obj.hooks || {};
 
-const stripOurs = (arr) =>
-  (arr || [])
+function stripOwned(entries, marker) {
+  return (Array.isArray(entries) ? entries : [])
     .map((entry) => ({
       ...entry,
-      hooks: (entry.hooks || []).filter((h) => !(h.command || "").includes(MARKER)),
+      hooks: (Array.isArray(entry.hooks) ? entry.hooks : [])
+        .filter((hook) => !String(hook.command || "").includes(marker)),
     }))
-    .filter((entry) => (entry.hooks || []).length > 0);
+    .filter((entry) => entry.hooks.length > 0);
+}
 
-const addHook = (evt, command, matched = false) => {
-  obj.hooks[evt] = stripOurs(obj.hooks[evt]);
-  const hook = { type: "command", command };
-  obj.hooks[evt].push(matched ? { matcher: "*", hooks: [hook] } : { hooks: [hook] });
-};
+function addHook(object, marker, event, command, matcher) {
+  object.hooks = object.hooks && typeof object.hooks === "object" && !Array.isArray(object.hooks)
+    ? object.hooks : {};
+  const entries = stripOwned(object.hooks[event], marker);
+  const group = { hooks: [{ type: "command", command }] };
+  if (matcher !== undefined) group.matcher = matcher;
+  entries.push(group);
+  object.hooks[event] = entries;
+}
 
-// Lifecycle hook (launch the app on open; the app quits itself when no longer needed)
-addHook("SessionStart", life("start"));
-// Status hooks (drive the animation/label)
-addHook("UserPromptSubmit", cmd("prompt"));
-addHook("PreToolUse", cmd("pre"), true);
-addHook("PostToolUse", cmd("post"), true);
-addHook("PermissionRequest", cmd("permission"));
-addHook("Stop", cmd("stop"));
+function installCodex() {
+  const statusDir = path.join(home, ".codex", "statusbar");
+  const configPath = path.join(home, ".codex", "hooks.json");
+  ensurePrivateDir(statusDir);
+  for (const name of ["update.js", "lifecycle.js", "fs-utils.js"]) {
+    copyPrivateFile(path.join(__dirname, name), path.join(statusDir, name));
+  }
+  const { object, backedUp } = readConfiguration(configPath);
+  const command = (script, event) => `"${node}" "${path.join(statusDir, script)}" ${event}`;
+  addHook(object, statusDir, "SessionStart", command("lifecycle.js", "start"));
+  addHook(object, statusDir, "UserPromptSubmit", command("update.js", "prompt"));
+  addHook(object, statusDir, "PreToolUse", command("update.js", "pre"), "*");
+  addHook(object, statusDir, "PostToolUse", command("update.js", "post"), "*");
+  addHook(object, statusDir, "PermissionRequest", command("update.js", "permission"));
+  addHook(object, statusDir, "Stop", command("update.js", "stop"));
+  writeFileAtomic(configPath, JSON.stringify(object, null, 2) + "\n");
+  return { configPath, statusDir, backedUp };
+}
 
-writeFileAtomic(hooksPath, JSON.stringify({ hooks: obj.hooks }, null, 2) + "\n");
-console.log("Installed status-bar hooks into", hooksPath);
-console.log("Scripts:", updateDest, "and", lifecycleDest);
-if (backedUp) console.log("Backup (first run only):", hooksPath + ".bak-statusbar");
-console.log("");
-console.log("IMPORTANT: Codex reviews command hooks before running them. Start Codex once");
-console.log("(`codex`) and APPROVE the Codex Status Bar hooks in the startup review — the");
-console.log("indicator stays idle until you do. After an app update that changes the hooks,");
-console.log("approve again.");
+function installClaude() {
+  const statusDir = path.join(home, ".claude", "statusbar");
+  const configPath = path.join(home, ".claude", "settings.json");
+  ensurePrivateDir(statusDir);
+  copyPrivateFile(path.join(__dirname, "claude-update.js"), path.join(statusDir, "claude-update.js"));
+  copyPrivateFile(path.join(__dirname, "claude-lifecycle.js"), path.join(statusDir, "claude-lifecycle.js"));
+  copyPrivateFile(path.join(__dirname, "fs-utils.js"), path.join(statusDir, "fs-utils.js"));
+  const { object, backedUp } = readConfiguration(configPath);
+  const command = (script, event) => `"${node}" "${path.join(statusDir, script)}" ${event}`;
+  addHook(object, statusDir, "SessionStart", command("claude-lifecycle.js", "start"));
+  addHook(object, statusDir, "UserPromptSubmit", command("claude-update.js", "prompt"));
+  addHook(object, statusDir, "PreToolUse", command("claude-update.js", "pre"));
+  addHook(object, statusDir, "PostToolUse", command("claude-update.js", "post"));
+  addHook(object, statusDir, "PostToolUseFailure", command("claude-update.js", "post-failure"));
+  addHook(object, statusDir, "PermissionRequest", command("claude-update.js", "permission"));
+  addHook(object, statusDir, "Stop", command("claude-update.js", "stop"));
+  addHook(object, statusDir, "SessionEnd", command("claude-lifecycle.js", "end"));
+  writeFileAtomic(configPath, JSON.stringify(object, null, 2) + "\n");
+  return { configPath, statusDir, backedUp };
+}
+
+const installed = [installCodex(), installClaude()];
+for (const result of installed) {
+  console.log("Installed status-bar hooks into", result.configPath);
+  if (result.backedUp) console.log("Backup (first run only):", result.configPath + ".bak-statusbar");
+}
+console.log("IMPORTANT: Codex may ask you to approve changed command hooks on startup.");

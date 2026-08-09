@@ -124,7 +124,7 @@ process.stdin.on("end", () => {
   }
 
   const out = {
-    state, label, tool: p.tool_name || "", project,
+    provider: "codex", state, label, tool: p.tool_name || "", project,
     sessionId: p.session_id || "", transcript: p.transcript_path || prev.transcript || "",
     startedAt, pausedTotal, pauseStart, ts, ownerPid, ownerKind,
   };

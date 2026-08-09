@@ -25,5 +25,6 @@ jobs:
         run: |
           node --test Tests/install.test.mjs
           node --test Tests/update.test.mjs
+          node --test Tests/claude_hooks.test.mjs
       - name: JS syntax check
-        run: node --check hooks/install.js && node --check hooks/lifecycle.js && node --check hooks/uninstall.js && node --check hooks/update.js
+        run: node --check hooks/install.js && node --check hooks/lifecycle.js && node --check hooks/uninstall.js && node --check hooks/update.js && node --check hooks/claude-update.js && node --check hooks/claude-lifecycle.js

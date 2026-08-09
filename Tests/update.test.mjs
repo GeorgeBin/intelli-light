@@ -40,6 +40,7 @@ test("prompt writes per-session file with paused fields reset", () => {
   const r = runHook(h.home, "prompt", { session_id: "sess-a", cwd: "/proj/foo" });
   assert.equal(r.status, 0);
   const s = readState(h.home, "sess-a");
+  assert.equal(s.provider, "codex");
   assert.equal(s.state, "thinking");
   assert.equal(s.label, "Thinking…");
   assert.equal(s.pausedTotal, 0);
