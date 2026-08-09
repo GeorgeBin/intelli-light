@@ -146,6 +146,66 @@ test("post after permission accumulates pausedTotal and clears pauseStart", () =
   assert.ok(s.pausedTotal >= 5, `pausedTotal>=5, got ${s.pausedTotal}`);
 });
 
+test("request_user_input waits for input and post resumes Working", () => {
+  using h = withTempHome();
+  runHook(h.home, "prompt", { session_id: "input-1", cwd: "/p" });
+  const startedAt = readState(h.home, "input-1").startedAt;
+  runHook(h.home, "pre", {
+    session_id: "input-1",
+    tool_name: "request_user_input",
+    tool_input: { questions: [{ header: "Choice", question: "Pick one" }] },
+  });
+  let s = readState(h.home, "input-1");
+  assert.equal(s.state, "waitingInput");
+  assert.equal(s.label, "Awaiting input");
+  assert.equal(s.startedAt, startedAt, "working timer is preserved");
+  assert.ok(s.pauseStart >= startedAt, "input wait starts a pause");
+
+  runHook(h.home, "post", {
+    session_id: "input-1",
+    tool_name: "request_user_input",
+    tool_response: { answers: { choice: "A" } },
+  });
+  s = readState(h.home, "input-1");
+  assert.equal(s.state, "thinking");
+  assert.equal(s.label, "Thinking…");
+  assert.equal(s.pauseStart, 0, "answer closes the pause");
+});
+
+test("ordinary tools do not enter waiting input", () => {
+  using h = withTempHome();
+  runHook(h.home, "pre", {
+    session_id: "ordinary-tool",
+    tool_name: "update_plan",
+    tool_input: { plan: [] },
+  });
+  assert.equal(readState(h.home, "ordinary-tool").state, "tool");
+});
+
+test("debug logs payload shape without user input or response values", () => {
+  using h = withTempHome();
+  const secretQuestion = "SENSITIVE_QUESTION_BODY";
+  const secretAnswer = "SENSITIVE_ANSWER_BODY";
+  runHook(h.home, "pre", {
+    session_id: "debug-input",
+    permission_mode: "default",
+    tool_name: "request_user_input",
+    tool_input: { questions: [{ question: secretQuestion }] },
+  }, { CODEX_STATUSBAR_DEBUG: "1" });
+  runHook(h.home, "post", {
+    session_id: "debug-input",
+    tool_name: "request_user_input",
+    tool_response: { answers: { choice: secretAnswer } },
+  }, { CODEX_STATUSBAR_DEBUG: "1" });
+
+  const log = fs.readFileSync(path.join(h.home, ".codex", "statusbar", "hooks.log"), "utf8");
+  assert.match(log, /\[pre\] tool=request_user_input/);
+  assert.match(log, /tool_input_keys=questions/);
+  assert.match(log, /tool_response_keys=answers/);
+  assert.doesNotMatch(log, new RegExp(secretQuestion));
+  assert.doesNotMatch(log, new RegExp(secretAnswer));
+});
+
 test("unknown tool shows truncated tool name, not 'Using tool'", () => {
   using h = withTempHome();
   runHook(h.home, "pre", { session_id: "s1", tool_name: "some_custom_tool" });

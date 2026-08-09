@@ -518,7 +518,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         let globalLightState: LightState
         switch globalState {
         case .working: globalLightState = .working
-        case .waitingApproval, .waitingImplementation: globalLightState = .actionRequired
+        case .waitingApproval, .waitingInput, .waitingImplementation: globalLightState = .actionRequired
         case .error: globalLightState = .error
         case .done: globalLightState = .done
         case .idle: globalLightState = .idle
@@ -546,6 +546,10 @@ final class StatusController: NSObject, NSMenuDelegate {
             // Timer stays visible but frozen at net time (spec §6.4). The amber dot
             // signals the pause; the clock just stops advancing until post fires.
             render(label: "Awaiting permission", color: amber, animate: false,
+                   startedAt: chosen.startedAt, pausedTotal: chosen.pausedTotal,
+                   pauseStart: chosen.pauseStart, dot: true)
+        case .waitingInput:
+            render(label: "Awaiting input", color: amber, animate: false,
                    startedAt: chosen.startedAt, pausedTotal: chosen.pausedTotal,
                    pauseStart: chosen.pauseStart, dot: true)
         case .waitingImplementation:

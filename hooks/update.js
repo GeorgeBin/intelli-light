@@ -21,7 +21,10 @@ const TOOL_LABELS = {
   spawn_agent: "Delegating", web_search: "Searching web",
 };
 const TRANSCRIPT_TAIL_BYTES = 1024 * 1024;
+const WAITING_INPUT_TOOL = "request_user_input";
 const truncate = (s, n) => (s.length <= n ? s : s.slice(0, n));
+const objectKeys = (value) => value && typeof value === "object" && !Array.isArray(value)
+  ? Object.keys(value).sort().join(",") : "-";
 // Reject the bare "."/".." segments so a crafted session_id can't escape states.d via
 // path.join normalization; the raw id is still stored verbatim in the JSON content.
 const safeId = (s) => { const c = String(s || "").replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 64); return (!c || c === "." || c === "..") ? "unknown" : c; };
@@ -139,7 +142,9 @@ process.stdin.on("end", () => {
     try {
       ensurePrivateDir(dir);
       appendPrivateFile(path.join(dir, "hooks.log"),
-        `${new Date().toISOString()} [${event}] tool=${p.tool_name || "-"} mode=${p.permission_mode || "-"} keys=${Object.keys(p).join(",")}\n`);
+        `${new Date().toISOString()} [${event}] tool=${p.tool_name || "-"} mode=${p.permission_mode || "-"} ` +
+        `keys=${Object.keys(p).sort().join(",")} tool_input_keys=${objectKeys(p.tool_input)} ` +
+        `tool_response_keys=${objectKeys(p.tool_response)}\n`);
     } catch {}
   }
 
@@ -162,7 +167,12 @@ process.stdin.on("end", () => {
       break;
     case "pre": {
       const t = p.tool_name || "";
-      state = "tool"; label = TOOL_LABELS[t] || (t ? truncate(t, 20) : "Working…");
+      if (t === WAITING_INPUT_TOOL) {
+        state = "waitingInput"; label = "Awaiting input";
+        if (!pauseStart) pauseStart = ts;
+      } else {
+        state = "tool"; label = TOOL_LABELS[t] || (t ? truncate(t, 20) : "Working…");
+      }
       if (!startedAt) startedAt = ts;
       break;
     }

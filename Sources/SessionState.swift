@@ -47,7 +47,8 @@ enum AgentState: Int, Equatable, Comparable {
     case working = 2
     case error = 3
     case waitingImplementation = 4
-    case waitingApproval = 5
+    case waitingInput = 5
+    case waitingApproval = 6
 
     static func < (lhs: AgentState, rhs: AgentState) -> Bool {
         lhs.rawValue < rhs.rawValue
@@ -57,6 +58,7 @@ enum AgentState: Int, Equatable, Comparable {
         switch self {
         case .working: return "Working"
         case .waitingApproval: return "Waiting Approval"
+        case .waitingInput: return "Waiting Input"
         case .waitingImplementation: return "Waiting Implementation"
         case .error: return "Error"
         case .done: return "Done"
@@ -65,7 +67,7 @@ enum AgentState: Int, Equatable, Comparable {
     }
 
     var requiresUserAction: Bool {
-        self == .waitingApproval || self == .waitingImplementation
+        self == .waitingApproval || self == .waitingInput || self == .waitingImplementation
     }
 }
 
@@ -93,7 +95,7 @@ struct AgentSessionKey: Hashable, Codable {
 // would otherwise launch the GUI via `app.run()`).
 
 struct SessionState {
-    var state: String       // thinking | tool | permission | waitingImplementation | done | idle
+    var state: String       // thinking | tool | permission | waitingInput | waitingImplementation | done | idle
     var label: String
     var tool: String
     var project: String
@@ -138,6 +140,7 @@ extension SessionState {
         switch state {
         case "thinking", "tool", "working": return .working
         case "permission", "waitingApproval": return .waitingApproval
+        case "waitingInput": return .waitingInput
         case "waitingImplementation": return .waitingImplementation
         case "error": return .error
         case "done": return .done
@@ -159,7 +162,7 @@ extension SessionState {
     func isDisplayEligible(now: TimeInterval, ownerAlive: Bool) -> Bool {
         guard isAlive(now: now) else { return false }
         switch normalizedState {
-        case .waitingApproval, .waitingImplementation:
+        case .waitingApproval, .waitingInput, .waitingImplementation:
             if ownerPid > 0 { return ownerAlive }
             return now - ts <= SessionState.unreliableOwnerDisplayAfter
         case .working:

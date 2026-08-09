@@ -10,7 +10,7 @@ enum LightState: Equatable {
     init(codexState: String?) {
         switch codexState {
         case "thinking", "tool": self = .working
-        case "permission", "waitingApproval", "waitingImplementation": self = .actionRequired
+        case "permission", "waitingApproval", "waitingInput", "waitingImplementation": self = .actionRequired
         case "error": self = .error
         case "done": self = .done
         default: self = .idle

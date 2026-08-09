@@ -42,6 +42,10 @@ check(owned("permission", 0, "unknown", 30).isDisplayEligible(now: now, ownerAli
 check(!owned("permission", 0, "unknown", 61).isDisplayEligible(now: now, ownerAlive: false), "old unknown owner active state stops displaying")
 check(owned("permission", 4242, "global", 901).isDisplayEligible(now: now, ownerAlive: true), "live owner keeps approval visible past stale timeout")
 check(!owned("permission", 4242, "global", 901).isDisplayEligible(now: now, ownerAlive: false), "dead owner removes stale approval")
+check(owned("waitingInput", 4242, "global", 901).isDisplayEligible(now: now, ownerAlive: true), "live owner keeps input wait visible past stale timeout")
+check(!owned("waitingInput", 4242, "global", 901).isDisplayEligible(now: now, ownerAlive: false), "dead owner removes stale input wait")
+check(owned("waitingInput", 4242, "global", 901).endedByOwnerExit(ownerAlive: false), "input wait ends with any recorded owner")
+check(owned("waitingInput", 4242, "global", 901).isRenderable(now: now, terminalShownAt: now - 100), "input wait never uses terminal timeout")
 check(owned("waitingImplementation", 4242, "global", 901).isDisplayEligible(now: now, ownerAlive: true), "live owner keeps implementation wait visible past stale timeout")
 check(!owned("waitingImplementation", 4242, "global", 901).isDisplayEligible(now: now, ownerAlive: false), "dead owner removes implementation wait")
 check(owned("waitingImplementation", 4242, "global", 901).endedByOwnerExit(ownerAlive: false), "action wait ends with any recorded owner")
@@ -78,6 +82,13 @@ if let parsedImplementation = SessionState(json: ["state": "waitingImplementatio
     eq(parsedImplementation.normalizedState.menuTitle, "Waiting Implementation", "implementation menu title")
 } else {
     check(false, "implementation wait JSON parses")
+}
+if let parsedInput = SessionState(json: ["state": "waitingInput", "sessionId": "input"]) {
+    eq(parsedInput.normalizedState, .waitingInput, "input wait normalizes")
+    eq(parsedInput.normalizedState.menuTitle, "Waiting Input", "input wait menu title")
+    check(parsedInput.normalizedState.requiresUserAction, "input wait requires user action")
+} else {
+    check(false, "input wait JSON parses")
 }
 
 // ---- selectDisplay: pinned wins if alive, else most recent alive, else nil ----
@@ -125,6 +136,10 @@ var codexImplementation = codexSameId
 codexImplementation.sessionId = "implementation"
 codexImplementation.state = "waitingImplementation"
 codexImplementation.ts = now
+var codexInput = codexSameId
+codexInput.sessionId = "input"
+codexInput.state = "waitingInput"
+codexInput.ts = now
 var codexDone = doneRecent
 codexDone.provider = .codex
 var claudeError = errorRecent
@@ -144,6 +159,15 @@ eq(arbitrateAgentState(enabledProviders: [.codex, .claude],
 eq(arbitrateAgentState(enabledProviders: [.codex, .claude],
                        sessions: [codexImplementation, claudeApproval], now: now),
    .waitingApproval, "approval wins over implementation wait")
+eq(arbitrateAgentState(enabledProviders: [.codex, .claude],
+                       sessions: [codexInput, claudeApproval, codexImplementation], now: now),
+   .waitingApproval, "approval wins over input and implementation waits")
+eq(arbitrateAgentState(enabledProviders: [.codex, .claude],
+                       sessions: [codexInput, codexImplementation, claudeError], now: now),
+   .waitingInput, "input wait wins over implementation wait and error")
+eq(arbitrateAgentState(enabledProviders: [.codex, .claude],
+                       sessions: [codexImplementation, claudeError, codexSameId], now: now),
+   .waitingImplementation, "implementation wait wins over error and working")
 eq(arbitrateAgentState(enabledProviders: [.codex, .claude],
                        sessions: [codexSameId, claudeWorking, codexDone], now: now),
    .working, "working wins over done across providers")
@@ -177,6 +201,7 @@ eq(LightState(codexState: "thinking"), .working, "thinking maps to working")
 eq(LightState(codexState: "tool"), .working, "tool maps to working")
 eq(LightState(codexState: "permission"), .actionRequired, "permission maps to action required")
 eq(LightState(codexState: "waitingApproval"), .actionRequired, "Claude approval maps to action required")
+eq(LightState(codexState: "waitingInput"), .actionRequired, "input wait maps to action required")
 eq(LightState(codexState: "waitingImplementation"), .actionRequired, "implementation wait maps to action required")
 eq(LightState(codexState: "error"), .error, "error maps to error")
 eq(LightState(codexState: "done"), .done, "done maps to done")
