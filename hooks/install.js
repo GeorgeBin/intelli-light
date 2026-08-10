@@ -10,6 +10,10 @@ const { copyPrivateFile, ensurePrivateDir, writeFileAtomic } = require("./fs-uti
 const home = os.homedir();
 const node = process.execPath;
 const supportedProviders = new Set(["codex", "claude"]);
+const sourceScript = (provider, name) => {
+  const bundled = path.join(__dirname, name);
+  return fs.existsSync(bundled) ? bundled : path.join(__dirname, provider, name);
+};
 
 function enabledProvidersFromArguments(args) {
   const option = args.find((arg) => arg.startsWith("--providers="));
@@ -95,7 +99,7 @@ function reconcileCodex(enabled) {
   if (!enabled) return disableProvider(configPath, statusDir);
   ensurePrivateDir(statusDir);
   for (const name of ["update.js", "lifecycle.js", "fs-utils.js"]) {
-    copyPrivateFile(path.join(__dirname, name), path.join(statusDir, name));
+    copyPrivateFile(sourceScript("codex", name), path.join(statusDir, name));
   }
   const { object, backedUp } = readConfiguration(configPath);
   const command = (script, event) => `"${node}" "${path.join(statusDir, script)}" ${event}`;
@@ -115,9 +119,9 @@ function reconcileClaude(enabled) {
   const configPath = path.join(home, ".claude", "settings.json");
   if (!enabled) return disableProvider(configPath, statusDir);
   ensurePrivateDir(statusDir);
-  copyPrivateFile(path.join(__dirname, "claude-update.js"), path.join(statusDir, "claude-update.js"));
-  copyPrivateFile(path.join(__dirname, "claude-lifecycle.js"), path.join(statusDir, "claude-lifecycle.js"));
-  copyPrivateFile(path.join(__dirname, "fs-utils.js"), path.join(statusDir, "fs-utils.js"));
+  copyPrivateFile(sourceScript("claude", "claude-update.js"), path.join(statusDir, "claude-update.js"));
+  copyPrivateFile(sourceScript("claude", "claude-lifecycle.js"), path.join(statusDir, "claude-lifecycle.js"));
+  copyPrivateFile(sourceScript("shared", "fs-utils.js"), path.join(statusDir, "fs-utils.js"));
   const { object, backedUp } = readConfiguration(configPath);
   const command = (script, event) => `"${node}" "${path.join(statusDir, script)}" ${event}`;
   addHook(object, statusDir, "SessionStart", command("claude-lifecycle.js", "start"));

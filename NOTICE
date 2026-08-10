@@ -4,7 +4,7 @@ Copyright (c) 2026 Yijiazhen Qi
 This software is derived from claude-status-bar by Mick Cesanek
 (https://github.com/m1ckc3s/claude-status-bar), licensed under the MIT License.
 The build script (build.sh), the Codex hook scripts (hooks/*.js), and the menu
-bar application (Sources/main.swift) are adapted from that project. The visual
+bar application (apps/macos/ui/main.swift) are adapted from that project. The visual
 identity (icons and rendered status art) is original to Codex Status Bar.
 
 Codex Status Bar is an unofficial project and is not affiliated with, endorsed by, or

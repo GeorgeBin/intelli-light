@@ -1,0 +1,3 @@
+#pragma once
+
+#define INTELLI_LIGHT_VERSION "@INTELLI_LIGHT_VERSION@"

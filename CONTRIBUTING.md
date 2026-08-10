@@ -20,10 +20,10 @@ Thanks for your interest in Codex Status Bar.
 ## Test
 
 ```bash
-node --test Tests/install.test.mjs
-node --test Tests/update.test.mjs
-swiftc Tests/logic_tests.swift Sources/SessionState.swift Sources/AppSupport.swift Sources/LightOutput.swift -o /tmp/csbt && /tmp/csbt
-swiftc Tests/light_output_tests.swift Sources/LightOutput.swift Sources/GeorgeLightHttpOutput.swift -o /tmp/light-output-tests && /tmp/light-output-tests
+node --test Tests/hooks/install.test.mjs
+node --test Tests/hooks/update.test.mjs
+swiftc Tests/macos/logic_tests.swift apps/macos/program/SessionState.swift apps/macos/program/AppSupport.swift apps/macos/led/LightOutput.swift -o /tmp/csbt && /tmp/csbt
+swiftc Tests/macos/light_output_tests.swift apps/macos/led/LightOutput.swift apps/macos/led/GeorgeLightHttpOutput.swift -o /tmp/light-output-tests && /tmp/light-output-tests
 ```
 
 ## Format / lint
@@ -31,7 +31,7 @@ swiftc Tests/light_output_tests.swift Sources/LightOutput.swift Sources/GeorgeLi
 A `.swift-format` config is checked in for editor formatting of new Swift code; the existing
 files use a deliberately compact hand-tuned style, so a repo-wide reformat is intentionally
 not enforced. JavaScript hook scripts are intentionally dependency-free; keep them so, and
-syntax-check with `node --check hooks/*.js`.
+syntax-check with `node --check hooks/*.js hooks/codex/*.js hooks/claude/*.js hooks/linux/*.js`.
 
 ## Pull requests
 

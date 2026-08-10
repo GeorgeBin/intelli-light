@@ -1,8 +1,11 @@
 build/
+# Ignore caches left by the pre-apps Linux layout.
 linux/target/
-linux/desktop/build*/
-linux/build/
-linux/dist/
+apps/linux/target/
+apps/linux/program/target/
+apps/linux/ui/build*/
+apps/linux/build/
+apps/linux/dist/
 *.dmg
 .DS_Store
 node_modules/

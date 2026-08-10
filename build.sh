@@ -15,8 +15,9 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 
 echo "Compiling (universal, macOS 12+)…"
-swiftc -O -target arm64-apple-macos12.0  Sources/*.swift -o "$BIN.arm64"  -framework Cocoa
-swiftc -O -target x86_64-apple-macos12.0 Sources/*.swift -o "$BIN.x86_64" -framework Cocoa
+SWIFT_SOURCES=(apps/macos/program/*.swift apps/macos/ui/*.swift apps/macos/led/*.swift)
+swiftc -O -target arm64-apple-macos12.0  "${SWIFT_SOURCES[@]}" -o "$BIN.arm64"  -framework Cocoa
+swiftc -O -target x86_64-apple-macos12.0 "${SWIFT_SOURCES[@]}" -o "$BIN.x86_64" -framework Cocoa
 lipo -create "$BIN.arm64" "$BIN.x86_64" -o "$BIN"
 rm "$BIN.arm64" "$BIN.x86_64"
 
@@ -42,9 +43,10 @@ PLIST
 # Bundle the hook scripts (so first-launch self-install works), the app icon,
 # and the license notices.
 mkdir -p "$APP/Contents/Resources"
-cp hooks/update.js hooks/lifecycle.js hooks/claude-update.js hooks/claude-lifecycle.js \
+cp hooks/codex/update.js hooks/codex/lifecycle.js \
+   hooks/claude/claude-update.js hooks/claude/claude-lifecycle.js \
    hooks/install.js hooks/uninstall.js hooks/fs-utils.js "$APP/Contents/Resources/"
-cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+cp apps/macos/ui/assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp NOTICE LICENSE "$APP/Contents/Resources/"
 
 # --- Signing / notarization ---

@@ -17,14 +17,14 @@ jobs:
         run: SKIP_NOTARIZE=1 ./build.sh
       - name: Swift logic tests
         run: |
-          swiftc Tests/logic_tests.swift Sources/SessionState.swift Sources/AppSupport.swift Sources/LightOutput.swift -o "$RUNNER_TEMP/csbt"
+          swiftc Tests/macos/logic_tests.swift apps/macos/program/SessionState.swift apps/macos/program/AppSupport.swift apps/macos/led/LightOutput.swift -o "$RUNNER_TEMP/csbt"
           "$RUNNER_TEMP/csbt"
-          swiftc Tests/light_output_tests.swift Sources/LightOutput.swift Sources/GeorgeLightHttpOutput.swift -o "$RUNNER_TEMP/light-output-tests"
+          swiftc Tests/macos/light_output_tests.swift apps/macos/led/LightOutput.swift apps/macos/led/GeorgeLightHttpOutput.swift -o "$RUNNER_TEMP/light-output-tests"
           "$RUNNER_TEMP/light-output-tests"
       - name: Node tests
         run: |
-          node --test Tests/install.test.mjs
-          node --test Tests/update.test.mjs
-          node --test Tests/claude_hooks.test.mjs
+          node --test Tests/hooks/install.test.mjs
+          node --test Tests/hooks/update.test.mjs
+          node --test Tests/hooks/claude_hooks.test.mjs
       - name: JS syntax check
-        run: node --check hooks/install.js && node --check hooks/lifecycle.js && node --check hooks/uninstall.js && node --check hooks/update.js && node --check hooks/claude-update.js && node --check hooks/claude-lifecycle.js
+        run: node --check hooks/install.js && node --check hooks/uninstall.js && node --check hooks/codex/lifecycle.js && node --check hooks/codex/update.js && node --check hooks/claude/claude-update.js && node --check hooks/claude/claude-lifecycle.js && node --check hooks/linux/linux-lifecycle.js

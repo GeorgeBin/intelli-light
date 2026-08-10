@@ -6,7 +6,7 @@ A tiny macOS menu bar app that shows the **Codex CLI's live status**: an animate
 
 | Dark mode | Light mode |
 |---|---|
-| ![Codex Status Bar thinking with timer and menu controls in dark mode](assets/screenshots/codex-status-bar-dark.png) | ![Codex Status Bar thinking with timer and menu controls in light mode](assets/screenshots/codex-status-bar-light.png) |
+| ![Codex Status Bar thinking with timer and menu controls in dark mode](docs/screenshots/codex-status-bar-dark.png) | ![Codex Status Bar thinking with timer and menu controls in light mode](docs/screenshots/codex-status-bar-light.png) |
 
 ## What it shows
 
@@ -20,11 +20,11 @@ Icon color can be **Accent** (`#4D8FFF`) or **System** (adaptive black/white, li
 
 | Running command | Timer hidden |
 |---|---|
-| ![Codex Status Bar showing the Running command tool label with an elapsed timer](assets/screenshots/codex-status-bar-running-command.png) | ![Codex Status Bar showing the thinking label with the elapsed timer hidden](assets/screenshots/codex-status-bar-thinking.png) |
+| ![Codex Status Bar showing the Running command tool label with an elapsed timer](docs/screenshots/codex-status-bar-running-command.png) | ![Codex Status Bar showing the thinking label with the elapsed timer hidden](docs/screenshots/codex-status-bar-thinking.png) |
 
 | Awaiting permission | Menu controls |
 |---|---|
-| ![Codex Status Bar showing the amber awaiting permission state](assets/screenshots/codex-status-bar-awaiting-permission.png) | ![Codex Status Bar settings menu with Open Codex, Show timer, Accent, System, and Quit](assets/screenshots/codex-status-bar-menu-controls.png) |
+| ![Codex Status Bar showing the amber awaiting permission state](docs/screenshots/codex-status-bar-awaiting-permission.png) | ![Codex Status Bar settings menu with Open Codex, Show timer, Accent, System, and Quit](docs/screenshots/codex-status-bar-menu-controls.png) |
 
 ## Where it works
 
@@ -120,14 +120,24 @@ Requires the Xcode Command Line Tools (`xcode-select --install`).
 
 ## Development
 
+Source code is organized by platform and responsibility:
+
+```text
+apps/macos/{program,ui,led}
+apps/linux/{program,ui,packaging}
+hooks/{codex,claude,linux}
+led/protocol.md
+Tests/{hooks,macos,fixtures}
+```
+
 Run the tests:
 
 ```bash
-node --test Tests/install.test.mjs
-node --test Tests/update.test.mjs
-node --test Tests/claude_hooks.test.mjs
-swiftc Tests/logic_tests.swift Sources/SessionState.swift Sources/AppSupport.swift Sources/LightOutput.swift -o /tmp/csbt && /tmp/csbt
-swiftc Tests/light_output_tests.swift Sources/LightOutput.swift Sources/GeorgeLightHttpOutput.swift -o /tmp/light-output-tests && /tmp/light-output-tests
+node --test Tests/hooks/install.test.mjs
+node --test Tests/hooks/update.test.mjs
+node --test Tests/hooks/claude_hooks.test.mjs
+swiftc Tests/macos/logic_tests.swift apps/macos/program/SessionState.swift apps/macos/program/AppSupport.swift apps/macos/led/LightOutput.swift -o /tmp/csbt && /tmp/csbt
+swiftc Tests/macos/light_output_tests.swift apps/macos/led/LightOutput.swift apps/macos/led/GeorgeLightHttpOutput.swift -o /tmp/light-output-tests && /tmp/light-output-tests
 ```
 
 GeorgeLight output is enabled by default and uses `http://george-light-zero.local`.

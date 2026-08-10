@@ -44,10 +44,10 @@ sudo apt install build-essential cargo rustc cmake extra-cmake-modules \
   libkf6statusnotifieritem-dev
 ```
 
-`./linux/build.sh` runs Rust formatting, Clippy, all Rust/contract tests, a
+`./apps/linux/build.sh` runs Rust formatting, Clippy, all Rust/contract tests, a
 release Rust build, a fresh CMake configure/build, and Desktop CTest tests.
-`./linux/package-deb.sh` runs that build and creates the package under
-`linux/dist/`. Set `INTELLI_LIGHT_SKIP_BUILD=1` only when using already verified
+`./apps/linux/package-deb.sh` runs that build and creates the package under
+`apps/linux/dist/`. Set `INTELLI_LIGHT_SKIP_BUILD=1` only when using already verified
 artifacts from the same source tree.
 
 ## Runtime dependencies
@@ -79,8 +79,8 @@ the tray; no GNOME AppIndicator extension is required.
 ## Install and first-user setup
 
 ```sh
-./linux/package-deb.sh
-sudo apt install ./linux/dist/intelli-light_0.1.0_amd64.deb
+./apps/linux/package-deb.sh
+sudo apt install ./apps/linux/dist/intelli-light_0.1.0_amd64.deb
 intelli-light-linux setup-user
 ```
 

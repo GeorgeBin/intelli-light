@@ -1,25 +1,25 @@
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/hooks/lifecycle.js\" start" }] }
+      { "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/hooks/codex/lifecycle.js\" start" }] }
     ],
     "SessionEnd": [
-      { "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/hooks/lifecycle.js\" end" }] }
+      { "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/hooks/codex/lifecycle.js\" end" }] }
     ],
     "UserPromptSubmit": [
-      { "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/hooks/update.js\" prompt" }] }
+      { "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/hooks/codex/update.js\" prompt" }] }
     ],
     "PreToolUse": [
-      { "matcher": "*", "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/hooks/update.js\" pre" }] }
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/hooks/codex/update.js\" pre" }] }
     ],
     "PostToolUse": [
-      { "matcher": "*", "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/hooks/update.js\" post" }] }
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/hooks/codex/update.js\" post" }] }
     ],
     "PermissionRequest": [
-      { "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/hooks/update.js\" permission" }] }
+      { "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/hooks/codex/update.js\" permission" }] }
     ],
     "Stop": [
-      { "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/hooks/update.js\" stop" }] }
+      { "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/hooks/codex/update.js\" stop" }] }
     ]
   }
 }
