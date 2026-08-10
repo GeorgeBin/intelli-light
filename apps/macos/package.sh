@@ -49,6 +49,7 @@ echo "Packaging DMG..."
 DMG="$DIST_DIR/IntelliLight-${VERSION}.dmg"
 STAGE="$BUILD_DIR/dmg-stage"
 trap 'rm -rf -- "$STAGE" "$BUILD_DIR/rw.dmg" "$BUILD_DIR/app-notarize.zip"' EXIT
+mkdir -p "$DIST_DIR"
 rm -rf "$STAGE" "$DMG" "$BUILD_DIR/rw.dmg"
 mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
