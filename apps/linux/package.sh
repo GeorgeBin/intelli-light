@@ -5,16 +5,14 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)
 DIST_DIR="$SCRIPT_DIR/dist"
 DESKTOP_BUILD_DIR="$SCRIPT_DIR/build/ui"
+VERSION=$(tr -d '\r\n' < "$REPO_DIR/VERSION")
+APP_ID=$(tr -d '\r\n' < "$REPO_DIR/APP_ID")
 
+"$REPO_DIR/scripts/check-metadata.sh"
 if [[ ${INTELLI_LIGHT_SKIP_BUILD:-0} != 1 ]]; then
     "$SCRIPT_DIR/build.sh"
 fi
 
-VERSION=$(awk '
-    /^\[package\]$/ { package = 1; next }
-    /^\[/ { package = 0 }
-    package && /^version = / { gsub(/[" ]/, "", $3); print $3; exit }
-' "$SCRIPT_DIR/program/Cargo.toml")
 ARCH=$(dpkg --print-architecture)
 if [[ ! $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+([+~-][A-Za-z0-9.+~-]+)?$ ]]; then
     printf 'Invalid package version: %s\n' "$VERSION" >&2
@@ -24,15 +22,16 @@ if [[ $ARCH != amd64 && $ARCH != arm64 ]]; then
     printf 'Unsupported Debian architecture: %s (supported: amd64, arm64)\n' "$ARCH" >&2
     exit 1
 fi
-test -x "$SCRIPT_DIR/target/release/intelli-light-linux"
+test -x "$SCRIPT_DIR/build/cargo/release/intelli-light-linux"
 test -x "$DESKTOP_BUILD_DIR/bin/intelli-light-desktop"
+"$REPO_DIR/scripts/check-metadata.sh" --linux-build "$DESKTOP_BUILD_DIR"
 
 mkdir -p "$DIST_DIR"
 STAGE=$(mktemp -d "${TMPDIR:-/tmp}/intelli-light-deb.XXXXXX")
 trap 'rm -rf -- "$STAGE"' EXIT
 chmod 0755 "$STAGE"
 
-install -Dm755 "$SCRIPT_DIR/target/release/intelli-light-linux" \
+install -Dm755 "$SCRIPT_DIR/build/cargo/release/intelli-light-linux" \
     "$STAGE/usr/bin/intelli-light-linux"
 DESTDIR="$STAGE" cmake --install "$DESKTOP_BUILD_DIR" --prefix /usr
 if readelf -d "$STAGE/usr/bin/intelli-light-desktop" | grep -Eq 'RPATH|RUNPATH'; then
@@ -69,6 +68,9 @@ sed \
     -e "s/@INSTALLED_SIZE@/$INSTALLED_SIZE/g" \
     "$SCRIPT_DIR/packaging/debian/control.in" > "$STAGE/DEBIAN/control"
 chmod 0644 "$STAGE/DEBIAN/control"
+"$REPO_DIR/scripts/check-metadata.sh" --debian-control "$STAGE/DEBIAN/control"
+
+test -f "$STAGE/usr/share/applications/$APP_ID.desktop"
 
 OUTPUT="$DIST_DIR/intelli-light_${VERSION}_${ARCH}.deb"
 dpkg-deb --root-owner-group --build "$STAGE" "$OUTPUT"

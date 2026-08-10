@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in Codex Status Bar.
+Thanks for your interest in Intelli Light.
 
 > This is an unofficial project and is **not affiliated with, endorsed by, or sponsored by OpenAI**.
 
@@ -13,8 +13,8 @@ Thanks for your interest in Codex Status Bar.
 ## Build
 
 ```bash
-./build.sh            # builds build/Codex Status Bar.app
-./build.sh --dmg      # also produces build/CodexStatusBar.dmg (signing/notarization optional)
+./apps/macos/build.sh    # builds apps/macos/build/Intelli Light.app
+./apps/macos/package.sh  # signs and produces apps/macos/dist/IntelliLight-0.3.0.dmg
 ```
 
 ## Test

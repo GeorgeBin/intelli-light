@@ -37,7 +37,7 @@ func fixtureLightState(_ value: String) -> LightState? {
 func runStateContractFixtures() {
     let fixtureDirectory = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
-        .appendingPathComponent("fixtures/state-contract", isDirectory: true)
+        .appendingPathComponent("../fixtures/state-contract", isDirectory: true)
     let files: [URL]
     do {
         files = try FileManager.default.contentsOfDirectory(

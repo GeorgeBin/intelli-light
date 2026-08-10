@@ -1,4 +1,4 @@
-# Codex Status Bar
+# Intelli Light
 
 A tiny macOS menu bar app that shows the **Codex CLI's live status**: an animated spinner while it is thinking or running a tool, an amber dot when it needs your approval or is waiting for you to implement a completed plan, and the elapsed time of the current turn. It sits next to your battery and clock and stays out of the way — no window, no dock icon, no usage dashboards.
 
@@ -56,8 +56,8 @@ Approval is tied to the exact contents of the hooks. **Updating the app can chan
 
 ## Install — DMG
 
-1. Download the latest `CodexStatusBar.dmg` from the [Releases page](https://github.com/KiwiGaze/codex-status-bar/releases/latest).
-2. Open it and drag **Codex Status Bar** into Applications.
+1. Download the latest `IntelliLight-0.3.0.dmg` from the [Releases page](https://github.com/GeorgeBin/intelli-light/releases/latest).
+2. Open it and drag **Intelli Light** into Applications.
 3. Launch it once — on first launch it wires up the Codex hooks for you automatically (via the bundled installer).
 4. Start (or restart) `codex` and **trust the hooks** in the startup review (see [One-time setup](#one-time-setup-trust-the-hooks)). The spinner appears whenever Codex is running.
 
@@ -66,7 +66,7 @@ Approval is tied to the exact contents of the hooks. **Updating the app can chan
 If first-launch setup ever does not take, you can run it manually:
 
 ```bash
-node "/Applications/Codex Status Bar.app/Contents/Resources/install.js" --providers=codex,claude
+node "/Applications/Intelli Light.app/Contents/Resources/install.js" --providers=codex,claude
 ```
 
 ## Install — Codex plugin
@@ -104,7 +104,7 @@ The installer merges its hooks into `~/.codex/hooks.json` without touching your 
 ## Uninstall
 
 ```bash
-node "/Applications/Codex Status Bar.app/Contents/Resources/uninstall.js"   # removes only our hooks
+node "/Applications/Intelli Light.app/Contents/Resources/uninstall.js"   # removes only our hooks
 ```
 
 Then drag the app to the Trash.
@@ -112,8 +112,8 @@ Then drag the app to the Trash.
 ## Build from source
 
 ```bash
-./build.sh            # builds build/Codex Status Bar.app
-./build.sh --dmg      # also produces build/CodexStatusBar.dmg
+./apps/macos/build.sh    # builds apps/macos/build/Intelli Light.app
+./apps/macos/package.sh  # produces apps/macos/dist/IntelliLight-0.3.0.dmg
 ```
 
 Requires the Xcode Command Line Tools (`xcode-select --install`).
@@ -148,8 +148,8 @@ app domain; Action Required reuses the existing Waiting Approval preference keys
 preserve prior color and mode choices. Settings can also be managed from Terminal:
 
 ```bash
-defaults write io.github.kiwigaze.codexstatusbar georgeLightEnabled -bool true
-defaults write io.github.kiwigaze.codexstatusbar georgeLightBaseURL "http://192.168.1.45"
+defaults write io.github.georgebin.intelli-light georgeLightEnabled -bool true
+defaults write io.github.georgebin.intelli-light georgeLightBaseURL "http://192.168.1.45"
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the build, formatting, and PR workflow.

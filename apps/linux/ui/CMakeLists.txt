@@ -1,30 +1,36 @@
 cmake_minimum_required(VERSION 3.22)
 
-set(INTELLI_LIGHT_CARGO_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/../program/Cargo.toml")
-if(NOT EXISTS "${INTELLI_LIGHT_CARGO_MANIFEST}")
-    message(FATAL_ERROR "Cannot find version source: ${INTELLI_LIGHT_CARGO_MANIFEST}")
+set(INTELLI_LIGHT_REPO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
+set(INTELLI_LIGHT_VERSION_FILE "${INTELLI_LIGHT_REPO_DIR}/VERSION")
+set(INTELLI_LIGHT_APP_ID_FILE "${INTELLI_LIGHT_REPO_DIR}/APP_ID")
+if(NOT EXISTS "${INTELLI_LIGHT_VERSION_FILE}" OR NOT EXISTS "${INTELLI_LIGHT_APP_ID_FILE}")
+    message(FATAL_ERROR "Missing root VERSION or APP_ID metadata")
 endif()
 
-file(STRINGS "${INTELLI_LIGHT_CARGO_MANIFEST}" INTELLI_LIGHT_VERSION_LINES
-    REGEX "^[ \\t]*version[ \\t]*=[ \\t]*\"[^\"]+\"[ \\t]*$")
-list(LENGTH INTELLI_LIGHT_VERSION_LINES INTELLI_LIGHT_VERSION_LINE_COUNT)
-if(NOT INTELLI_LIGHT_VERSION_LINE_COUNT EQUAL 1)
-    message(FATAL_ERROR
-        "Expected exactly one package version in ${INTELLI_LIGHT_CARGO_MANIFEST}, "
-        "found ${INTELLI_LIGHT_VERSION_LINE_COUNT}")
+file(READ "${INTELLI_LIGHT_VERSION_FILE}" INTELLI_LIGHT_VERSION)
+file(READ "${INTELLI_LIGHT_APP_ID_FILE}" INTELLI_LIGHT_APP_ID)
+string(STRIP "${INTELLI_LIGHT_VERSION}" INTELLI_LIGHT_VERSION)
+string(STRIP "${INTELLI_LIGHT_APP_ID}" INTELLI_LIGHT_APP_ID)
+if(DEFINED INTELLI_LIGHT_EXPECTED_VERSION AND
+   NOT INTELLI_LIGHT_EXPECTED_VERSION STREQUAL INTELLI_LIGHT_VERSION)
+    message(FATAL_ERROR "VERSION mismatch between build input and root metadata")
 endif()
-list(GET INTELLI_LIGHT_VERSION_LINES 0 INTELLI_LIGHT_VERSION_LINE)
-string(REGEX REPLACE "^[ \\t]*version[ \\t]*=[ \\t]*\"([^\"]+)\"[ \\t]*$" "\\1"
-    INTELLI_LIGHT_VERSION "${INTELLI_LIGHT_VERSION_LINE}")
-string(REGEX MATCH "^[0-9]+\\.[0-9]+\\.[0-9]+" INTELLI_LIGHT_CMAKE_VERSION
-    "${INTELLI_LIGHT_VERSION}")
-if(NOT INTELLI_LIGHT_CMAKE_VERSION)
-    message(FATAL_ERROR "Invalid Cargo package version: ${INTELLI_LIGHT_VERSION}")
+if(DEFINED INTELLI_LIGHT_EXPECTED_APP_ID AND
+   NOT INTELLI_LIGHT_EXPECTED_APP_ID STREQUAL INTELLI_LIGHT_APP_ID)
+    message(FATAL_ERROR "APP_ID mismatch between build input and root metadata")
+endif()
+if(NOT INTELLI_LIGHT_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "Invalid VERSION metadata: ${INTELLI_LIGHT_VERSION}")
+endif()
+if(NOT INTELLI_LIGHT_APP_ID MATCHES "^[A-Za-z0-9]+(\\.[A-Za-z0-9-]+)+$")
+    message(FATAL_ERROR "Invalid APP_ID metadata: ${INTELLI_LIGHT_APP_ID}")
 endif()
 
-project(intelli-light-desktop VERSION ${INTELLI_LIGHT_CMAKE_VERSION} LANGUAGES CXX)
+project(intelli-light-desktop VERSION ${INTELLI_LIGHT_VERSION} LANGUAGES CXX)
 
-configure_file(src/Version.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/Version.h @ONLY)
+configure_file(src/AppMetadata.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/AppMetadata.h @ONLY)
+configure_file(data/intelli-light.desktop.in
+    ${CMAKE_CURRENT_BINARY_DIR}/${INTELLI_LIGHT_APP_ID}.desktop @ONLY)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -87,10 +93,8 @@ target_link_libraries(desktop-tests PRIVATE
 add_test(NAME desktop-tests COMMAND desktop-tests)
 set_tests_properties(desktop-tests PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-configure_file(data/io.github.georgebin.intelli-light.desktop.in
-    io.github.georgebin.intelli-light.desktop @ONLY)
 install(TARGETS intelli-light-desktop ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/io.github.georgebin.intelli-light.desktop
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${INTELLI_LIGHT_APP_ID}.desktop
     DESTINATION ${KDE_INSTALL_APPDIR})
 install(FILES data/icons/intelli-light.svg
     DESTINATION ${KDE_INSTALL_ICONDIR}/hicolor/scalable/apps)

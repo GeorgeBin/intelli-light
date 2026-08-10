@@ -13,7 +13,7 @@ final class GeorgeLightHttpOutput: ConfigurableLightOutput {
     private let session: URLSession
     private let leaseRefreshInterval: TimeInterval
     private let retryDelays: [TimeInterval]
-    private let queue = DispatchQueue(label: "io.github.kiwigaze.codexstatusbar.george-light-output")
+    private let queue = DispatchQueue(label: "io.github.georgebin.intelli-light.george-light-output")
     private var desiredState: LightState?
     private var desiredGeneration: UInt64 = 0
     private var requestInFlight = false

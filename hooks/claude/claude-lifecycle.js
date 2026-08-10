@@ -9,8 +9,8 @@ const cp = require("child_process");
 const fsUtils = fs.existsSync(path.join(__dirname, "fs-utils.js")) ? "./fs-utils.js" : "../fs-utils.js";
 const { ensurePrivateDir, writePrivateFile } = require(fsUtils);
 
-const BUNDLE_ID = "io.github.kiwigaze.codexstatusbar";
-const EXEC = "CodexStatusBar";
+const BUNDLE_ID = "io.github.georgebin.intelli-light";
+const EXEC = "IntelliLight";
 const dir = path.join(os.homedir(), ".claude", "statusbar");
 const sessionsDir = path.join(dir, "sessions.d");
 const statesDir = path.join(dir, "states.d");

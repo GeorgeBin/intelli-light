@@ -8,7 +8,7 @@ const cp = require("child_process");
 const { writeFileAtomic } = require("./fs-utils.js");
 
 const home = os.homedir();
-try { cp.execFileSync("pkill", ["-x", "CodexStatusBar"], { stdio: "ignore" }); } catch {}
+try { cp.execFileSync("pkill", ["-x", "IntelliLight"], { stdio: "ignore" }); } catch {}
 
 function removeOwned(configPath, marker) {
   if (!fs.existsSync(configPath)) return;

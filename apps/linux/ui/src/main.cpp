@@ -1,5 +1,5 @@
 #include "MainWindow.h"
-#include "Version.h"
+#include "AppMetadata.h"
 
 #include <KAboutData>
 #include <KLocalizedString>
@@ -14,7 +14,7 @@ int main(int argc, char **argv)
     application.setQuitOnLastWindowClosed(false);
     QCoreApplication::setOrganizationDomain(QStringLiteral("io.github.georgebin"));
     QCoreApplication::setApplicationName(QStringLiteral("intelli-light-desktop"));
-    QGuiApplication::setDesktopFileName(QStringLiteral("io.github.georgebin.intelli-light"));
+    QGuiApplication::setDesktopFileName(QStringLiteral(INTELLI_LIGHT_APP_ID));
 
     KLocalizedString::setApplicationDomain("intelli-light");
     KAboutData aboutData(
@@ -24,7 +24,7 @@ int main(int argc, char **argv)
         i18n("Native KDE Plasma desktop for Intelli Light"),
         KAboutLicense::MIT,
         i18n("Copyright 2026 GeorgeBin contributors"));
-    aboutData.setDesktopFileName(QStringLiteral("io.github.georgebin.intelli-light"));
+    aboutData.setDesktopFileName(QStringLiteral(INTELLI_LIGHT_APP_ID));
     aboutData.setHomepage(QStringLiteral("https://github.com/GeorgeBin/intelli-light"));
     KAboutData::setApplicationData(aboutData);
 

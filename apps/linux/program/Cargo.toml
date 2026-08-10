@@ -1,6 +1,6 @@
 [package]
 name = "intelli-light-linux"
-version = "0.1.1"
+version = "0.3.0"
 edition = "2021"
 description = "Contract-driven headless core for intelli-light"
 license = "MIT"

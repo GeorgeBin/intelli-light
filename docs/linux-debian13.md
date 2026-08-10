@@ -46,7 +46,7 @@ sudo apt install build-essential cargo rustc cmake extra-cmake-modules \
 
 `./apps/linux/build.sh` runs Rust formatting, Clippy, all Rust/contract tests, a
 release Rust build, a fresh CMake configure/build, and Desktop CTest tests.
-`./apps/linux/package-deb.sh` runs that build and creates the package under
+`./apps/linux/package.sh` runs that build and creates the package under
 `apps/linux/dist/`. Set `INTELLI_LIGHT_SKIP_BUILD=1` only when using already verified
 artifacts from the same source tree.
 
@@ -79,8 +79,8 @@ the tray; no GNOME AppIndicator extension is required.
 ## Install and first-user setup
 
 ```sh
-./apps/linux/package-deb.sh
-sudo apt install ./apps/linux/dist/intelli-light_0.1.0_amd64.deb
+./apps/linux/package.sh
+sudo apt install ./apps/linux/dist/intelli-light_0.3.0_amd64.deb
 intelli-light-linux setup-user
 ```
 

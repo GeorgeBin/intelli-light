@@ -1,9 +1,5 @@
-build/
-# Ignore caches left by the pre-apps Linux layout.
-linux/target/
-apps/linux/target/
-apps/linux/program/target/
-apps/linux/ui/build*/
+apps/macos/build/
+apps/macos/dist/
 apps/linux/build/
 apps/linux/dist/
 *.dmg

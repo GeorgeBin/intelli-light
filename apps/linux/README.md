@@ -6,8 +6,8 @@ on Debian, Ubuntu, or Fedora.
 
 ```sh
 ./build.sh
-./package-deb.sh
-sudo apt install ./dist/intelli-light_0.1.0_$(dpkg --print-architecture).deb
+./package.sh
+sudo apt install ./dist/intelli-light_0.3.0_$(dpkg --print-architecture).deb
 intelli-light-linux setup-user
 ```
 

@@ -13,8 +13,10 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "24"
+      - name: Metadata consistency
+        run: ./scripts/check-metadata.sh
       - name: Build (ad-hoc, no notarization)
-        run: SKIP_NOTARIZE=1 ./build.sh
+        run: ./apps/macos/build.sh
       - name: Swift logic tests
         run: |
           swiftc Tests/macos/logic_tests.swift apps/macos/program/SessionState.swift apps/macos/program/AppSupport.swift apps/macos/led/LightOutput.swift -o "$RUNNER_TEMP/csbt"

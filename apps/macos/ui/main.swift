@@ -34,7 +34,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     var pollTimer: Timer?
     var animTimer: Timer?
     var frameIdx = 0
-    let hookInstallerQueue = DispatchQueue(label: "io.github.kiwigaze.codexstatusbar.hook-installer")
+    let hookInstallerQueue = DispatchQueue(label: "io.github.georgebin.intelli-light.hook-installer")
 
     // Self-quit lifecycle: we're launched by the session-start hook; we decide when to
     // leave (see checkLifecycle). No background/login item — the check only runs while
@@ -117,7 +117,7 @@ final class StatusController: NSObject, NSMenuDelegate {
             NSApp.activate(ignoringOtherApps: true)
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = "Codex Status Bar couldn’t set up its agent hooks"
+            alert.messageText = "Intelli Light could not set up its agent hooks"
             let providerArgument = installerProviderArgument(providers)
             alert.informativeText = "The selected agent hooks weren’t configured — Node.js may not be on the app’s PATH. Open Terminal and run:\n\nnode \(shellQuoted(installer)) \(shellQuoted(providerArgument))\n\nThen restart the agent."
             alert.addButton(withTitle: "OK")
@@ -199,7 +199,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
-        let q = NSMenuItem(title: "Quit Codex Status Bar", action: #selector(quit), keyEquivalent: "q")
+        let q = NSMenuItem(title: "Quit Intelli Light", action: #selector(quit), keyEquivalent: "q")
         q.target = self
         menu.addItem(q)
     }
