@@ -13,6 +13,7 @@ class QGroupBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QProcess;
 class QSpinBox;
 class QTimer;
 class ColorEditWidget;
@@ -45,7 +46,9 @@ private:
     void applySnapshot(const QJsonObject &snapshot);
     void updateProviderConfig();
     void updateGeorgeLightConfig();
-    void showIpcError(const QString &message);
+    void showIpcError(const IpcClient::Result &result);
+    void startSetup();
+    void setupFailed(const QString &detail);
     void toggleWindow();
     void quitDesktop();
     QJsonObject effectFromWidgets(const EffectWidgets &widgets) const;
@@ -56,9 +59,12 @@ private:
     KStatusNotifierItem *tray_ = nullptr;
     bool updating_ = false;
     bool quitting_ = false;
+    bool setupInProgress_ = false;
     QJsonObject georgeLightConfig_;
 
     QLabel *daemonStatus_ = nullptr;
+    QPushButton *setupButton_ = nullptr;
+    QProcess *setupProcess_ = nullptr;
     QLabel *globalState_ = nullptr;
     QLabel *codexState_ = nullptr;
     QLabel *claudeState_ = nullptr;

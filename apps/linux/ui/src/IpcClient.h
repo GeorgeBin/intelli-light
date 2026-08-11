@@ -10,6 +10,7 @@ public:
         bool ok = false;
         QJsonObject response;
         QString error;
+        bool transportError = false;
     };
 
     explicit IpcClient(QString socketPath = defaultSocketPath());

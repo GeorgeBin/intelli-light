@@ -18,17 +18,17 @@ IpcClient::Result IpcClient::request(const QJsonObject &requestObject, int timeo
     QLocalSocket socket;
     socket.connectToServer(socketPath_, QIODevice::ReadWrite);
     if (!socket.waitForConnected(timeoutMs)) {
-        return {false, {}, socket.errorString()};
+        return {false, {}, socket.errorString(), true};
     }
 
     QByteArray payload = QJsonDocument(requestObject).toJson(QJsonDocument::Compact);
     payload.append('\n');
     if (socket.write(payload) != payload.size()
         || (socket.bytesToWrite() > 0 && !socket.waitForBytesWritten(timeoutMs))) {
-        return {false, {}, socket.errorString()};
+        return {false, {}, socket.errorString(), true};
     }
     if (!socket.waitForReadyRead(timeoutMs)) {
-        return {false, {}, socket.errorString()};
+        return {false, {}, socket.errorString(), true};
     }
 
     QByteArray response = socket.readLine();

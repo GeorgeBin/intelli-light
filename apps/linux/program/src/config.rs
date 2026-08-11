@@ -172,6 +172,9 @@ impl Config {
             if !(1..=4).contains(&effect.mode_id) {
                 return Err("effect modeId must be between 1 and 4".to_owned());
             }
+            if !(1..=300).contains(&effect.duration_sec) {
+                return Err("effect durationSec must be between 1 and 300".to_owned());
+            }
             if effect.brightness > 100 {
                 return Err("effect brightness must be at most 100".to_owned());
             }

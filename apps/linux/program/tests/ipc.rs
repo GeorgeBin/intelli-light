@@ -99,6 +99,37 @@ fn ipc_accepts_desktop_george_light_camel_case_field() {
     assert!(value.get("george_light").is_none());
 }
 
+#[test]
+fn ipc_rejects_george_light_duration_outside_authoritative_range() {
+    for duration in [0, 301] {
+        let home = TestHome::new(&format!("invalid-duration-{duration}"));
+        let mut config = Config::default();
+        let snapshot = IpcSnapshot::build(&config, &[], unix_now(), Connectivity::Unknown);
+        let mut light = GeorgeLightConfig::default();
+        light.effects.done.duration_sec = duration;
+
+        let response = handle_request(
+            &IpcRequest::SetGeorgeLight {
+                george_light: light,
+            },
+            home.path(),
+            &mut config,
+            &snapshot,
+        );
+
+        assert_eq!(response["ok"], false);
+        assert!(response["error"]
+            .as_str()
+            .unwrap()
+            .contains("durationSec must be between 1 and 300"));
+        assert_eq!(config, Config::default());
+        assert!(!home
+            .path()
+            .join(".config/intelli-light/config.json")
+            .exists());
+    }
+}
+
 fn session(state: &str, id: &str, now: f64) -> SessionState {
     serde_json::from_value(serde_json::json!({
         "provider": "codex",

@@ -44,7 +44,12 @@ pub fn run(home: &Path) -> Result<(), String> {
         "available",
     );
     check_command(
-        "Daemon",
+        "Service enabled",
+        &["systemctl", "--user", "is-enabled", "intelli-light.service"],
+        "enabled",
+    );
+    check_command(
+        "Service active",
         &["systemctl", "--user", "is-active", "intelli-light.service"],
         "active",
     );
@@ -125,8 +130,14 @@ fn check_command(label: &str, command: &[&str], success_detail: &str) {
     match Command::new(program).args(arguments).output() {
         Ok(output) if output.status.success() => check(label, true, success_detail),
         Ok(output) => {
-            let text = String::from_utf8_lossy(&output.stderr);
-            check(label, false, text.trim());
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let detail = if stdout.trim().is_empty() {
+                stderr.trim()
+            } else {
+                stdout.trim()
+            };
+            check(label, false, detail);
         }
         Err(error) => check(label, false, &error.to_string()),
     }

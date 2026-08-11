@@ -13,6 +13,7 @@
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QComboBox>
+#include <QDir>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -22,6 +23,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QProcess>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QStatusBar>
@@ -53,6 +55,37 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     createTray();
+    setupProcess_ = new QProcess(this);
+    connect(setupProcess_, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart && setupInProgress_) {
+            setupFailed(setupProcess_->errorString());
+        }
+    });
+    connect(setupProcess_,
+            qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
+            this,
+            [this](int exitCode, QProcess::ExitStatus exitStatus) {
+                if (!setupInProgress_) {
+                    return;
+                }
+                setupInProgress_ = false;
+                setupButton_->setEnabled(true);
+                if (exitStatus == QProcess::NormalExit && exitCode == 0) {
+                    daemonStatus_->setText(tr("Setup complete; connecting…"));
+                    daemonStatus_->setToolTip({});
+                    refresh();
+                    QTimer::singleShot(250, this, &MainWindow::refresh);
+                    return;
+                }
+                QString detail = QString::fromLocal8Bit(setupProcess_->readAllStandardError()).trimmed();
+                if (detail.isEmpty()) {
+                    detail = QString::fromLocal8Bit(setupProcess_->readAllStandardOutput()).trimmed();
+                }
+                if (detail.isEmpty()) {
+                    detail = tr("setup-user exited with code %1").arg(exitCode);
+                }
+                setupFailed(detail);
+            });
     refreshTimer_ = new QTimer(this);
     refreshTimer_->setInterval(750);
     connect(refreshTimer_, &QTimer::timeout, this, &MainWindow::refresh);
@@ -65,18 +98,26 @@ QWidget *MainWindow::createOverviewPage()
     auto *page = new QWidget(this);
     auto *layout = new QFormLayout(page);
     daemonStatus_ = new QLabel(tr("Connecting…"), page);
+    setupButton_ = new QPushButton(tr("Set Up / Repair"), page);
+    setupButton_->hide();
+    auto *daemonRow = new QWidget(page);
+    auto *daemonLayout = new QHBoxLayout(daemonRow);
+    daemonLayout->setContentsMargins(0, 0, 0, 0);
+    daemonLayout->addWidget(daemonStatus_, 1);
+    daemonLayout->addWidget(setupButton_);
     globalState_ = new QLabel(tr("Idle"), page);
     codexState_ = new QLabel(tr("Idle"), page);
     claudeState_ = new QLabel(tr("Idle"), page);
     currentSession_ = new QLabel(tr("None"), page);
     currentSession_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     lightConnectivity_ = new QLabel(tr("Unknown"), page);
-    layout->addRow(tr("Daemon:"), daemonStatus_);
+    layout->addRow(tr("Daemon:"), daemonRow);
     layout->addRow(tr("Global AgentState:"), globalState_);
     layout->addRow(tr("Codex:"), codexState_);
     layout->addRow(tr("Claude Code:"), claudeState_);
     layout->addRow(tr("Project / session:"), currentSession_);
     layout->addRow(tr("GeorgeLight:"), lightConnectivity_);
+    connect(setupButton_, &QPushButton::clicked, this, &MainWindow::startSetup);
     return page;
 }
 
@@ -133,7 +174,8 @@ QGroupBox *MainWindow::createEffectEditor(const QString &title, EffectWidgets &w
     widgets.mode->addItem(tr("Breath"), 3);
     widgets.mode->addItem(tr("Fast Blink"), 4);
     widgets.duration = new QSpinBox(group);
-    widgets.duration->setRange(0, 86400);
+    widgets.duration->setRange(DefaultSettings::EffectDurationMinimum,
+                               DefaultSettings::EffectDurationMaximum);
     widgets.duration->setSuffix(tr(" s"));
     widgets.brightness = new QSpinBox(group);
     widgets.brightness->setRange(0, 100);
@@ -194,12 +236,19 @@ void MainWindow::refresh()
 {
     const IpcClient::Result result = ipc_.snapshot();
     if (!result.ok) {
-        daemonStatus_->setText(tr("Unavailable: %1").arg(result.error));
-        statusBar()->showMessage(tr("Waiting for intelli-light daemon"));
+        if (!setupInProgress_) {
+            daemonStatus_->setText(tr("Daemon not running / not set up"));
+            setupButton_->setEnabled(true);
+            statusBar()->showMessage(tr("Waiting for intelli-light daemon"));
+        }
+        daemonStatus_->setToolTip(result.error);
+        setupButton_->show();
         tray_->setToolTipSubTitle(tr("Daemon unavailable"));
         return;
     }
     daemonStatus_->setText(tr("Connected"));
+    daemonStatus_->setToolTip({});
+    setupButton_->hide();
     statusBar()->clearMessage();
     applySnapshot(result.response.value(QStringLiteral("snapshot")).toObject());
 }
@@ -286,7 +335,7 @@ void MainWindow::updateProviderConfig()
         {QStringLiteral("providers"), providers},
     });
     if (!result.ok) {
-        showIpcError(result.error);
+        showIpcError(result);
     }
     refresh();
 }
@@ -322,14 +371,60 @@ void MainWindow::updateGeorgeLightConfig()
         {QStringLiteral("georgeLight"), config},
     });
     if (!result.ok) {
-        showIpcError(result.error);
+        showIpcError(result);
     }
     refresh();
 }
 
-void MainWindow::showIpcError(const QString &message)
+void MainWindow::showIpcError(const IpcClient::Result &result)
 {
-    QMessageBox::warning(this, tr("Intelli Light daemon"), message);
+    if (!result.transportError) {
+        QMessageBox::warning(this, tr("Intelli Light daemon"), result.error);
+        return;
+    }
+    QMessageBox message(QMessageBox::Warning,
+                        tr("Intelli Light daemon"),
+                        tr("The daemon is not running or has not been set up."),
+                        QMessageBox::Ok,
+                        this);
+    message.setInformativeText(tr("Use Set Up / Repair, then try again."));
+    message.setDetailedText(result.error);
+    message.exec();
+}
+
+void MainWindow::startSetup()
+{
+    if (setupInProgress_ || setupProcess_->state() != QProcess::NotRunning) {
+        return;
+    }
+    setupInProgress_ = true;
+    setupButton_->setEnabled(false);
+    daemonStatus_->setText(tr("Setting up daemon…"));
+    daemonStatus_->setToolTip({});
+    statusBar()->showMessage(tr("Running intelli-light-linux setup-user"));
+    setupProcess_->setProgram(
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("intelli-light-linux")));
+    setupProcess_->setArguments({QStringLiteral("setup-user")});
+    setupProcess_->start();
+}
+
+void MainWindow::setupFailed(const QString &detail)
+{
+    setupInProgress_ = false;
+    setupButton_->setEnabled(true);
+    setupButton_->show();
+    daemonStatus_->setText(tr("Set up / repair failed"));
+    daemonStatus_->setToolTip(detail);
+    statusBar()->showMessage(tr("Daemon setup failed"));
+
+    QMessageBox message(QMessageBox::Warning,
+                        tr("Intelli Light setup"),
+                        tr("Could not set up Intelli Light for this user."),
+                        QMessageBox::Ok,
+                        this);
+    message.setInformativeText(tr("Check that your user systemd session is available, then try again."));
+    message.setDetailedText(detail);
+    message.exec();
 }
 
 void MainWindow::toggleWindow()

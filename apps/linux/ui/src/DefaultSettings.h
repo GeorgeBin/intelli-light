@@ -6,6 +6,8 @@
 namespace DefaultSettings
 {
 inline const QString GeorgeLightAddress = QStringLiteral("http://george-light-zero.local");
+inline constexpr int EffectDurationMinimum = 1;
+inline constexpr int EffectDurationMaximum = 300;
 
 inline QString georgeLightAddress(const QJsonObject &config)
 {

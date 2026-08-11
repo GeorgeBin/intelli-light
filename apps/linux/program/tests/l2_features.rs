@@ -60,6 +60,31 @@ fn config_defaults_round_trip_and_set_all_required_fields() {
 }
 
 #[test]
+fn george_light_duration_contract_accepts_only_one_through_three_hundred() {
+    for duration in [1, 300] {
+        let mut config = Config::default();
+        config.george_light.effects.done.duration_sec = duration;
+        config.validate().unwrap();
+
+        let mut cli_config = Config::default();
+        cli_config
+            .set("effects.done.durationSec", &duration.to_string())
+            .unwrap();
+    }
+
+    for duration in [0, 301] {
+        let mut config = Config::default();
+        config.george_light.effects.done.duration_sec = duration;
+        assert!(config.validate().is_err());
+
+        let mut cli_config = Config::default();
+        assert!(cli_config
+            .set("effects.done.durationSec", &duration.to_string())
+            .is_err());
+    }
+}
+
+#[test]
 fn hooks_are_idempotent_preserve_user_entries_and_follow_providers() {
     let home = TestHome::new("hooks");
     write_json(

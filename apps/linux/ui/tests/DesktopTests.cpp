@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QTest>
+#include <QUuid>
 
 class DesktopTests : public QObject
 {
@@ -17,7 +18,9 @@ private Q_SLOTS:
     void lightStatesMapToNativePresentation();
     void providerAndGeorgeLightCommandsSerialize();
     void ipcResponseSerialization();
+    void ipcTransportFailuresAreClassified();
     void georgeLightAddressDefaultsAndOverrides();
+    void georgeLightDurationBoundsMatchRustContract();
     void hexValidationAndNormalization();
     void colorConversionsRoundTrip();
     void effectJsonKeepsStandardRgbHex();
@@ -80,7 +83,18 @@ void DesktopTests::ipcResponseSerialization()
     const IpcClient::Result error =
         IpcClient::parseResponse(QByteArrayLiteral("{\"ok\":false,\"error\":\"invalid config\"}\n"));
     QVERIFY(!error.ok);
+    QVERIFY(!error.transportError);
     QCOMPARE(error.error, QStringLiteral("invalid config"));
+}
+
+void DesktopTests::ipcTransportFailuresAreClassified()
+{
+    const QString socket = QStringLiteral("/tmp/intelli-light-missing-%1.sock")
+                               .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    const IpcClient::Result result = IpcClient(socket).snapshot();
+    QVERIFY(!result.ok);
+    QVERIFY(result.transportError);
+    QVERIFY(!result.error.isEmpty());
 }
 
 void DesktopTests::georgeLightAddressDefaultsAndOverrides()
@@ -91,6 +105,12 @@ void DesktopTests::georgeLightAddressDefaultsAndOverrides()
     QCOMPARE(DefaultSettings::georgeLightAddress(
                  {{QStringLiteral("address"), QStringLiteral("http://light.example:8080")}}),
              QStringLiteral("http://light.example:8080"));
+}
+
+void DesktopTests::georgeLightDurationBoundsMatchRustContract()
+{
+    QCOMPARE(DefaultSettings::EffectDurationMinimum, 1);
+    QCOMPARE(DefaultSettings::EffectDurationMaximum, 300);
 }
 
 void DesktopTests::hexValidationAndNormalization()
